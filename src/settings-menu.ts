@@ -4,9 +4,9 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import { autoLanguagePolicy, undetectablePreferences } from "./language-detection-policy.js";
-import { findCachedLanguageDetector } from "./language-detection-model.js";
+import { findCachedCatalogModel } from "./models.js";
 import { microphonePermission, type Permission } from "./audio.js";
-import { displayLanguage, getCatalogModel } from "./catalog.js";
+import { displayLanguage, getCatalogModel, LANGUAGE_DETECTION_MODEL } from "./catalog.js";
 import { chineseOutputSummary, isChineseLanguage } from "./chinese.js";
 import {
   chooseLanguages,
@@ -95,7 +95,7 @@ function settingsHomeChoices(
   const skipped = undetectablePreferences(model, configured.preferredLanguages);
   const autoIssue = policy.kind === "unsupported" && policy.reason
     ? `Auto unavailable: ${policy.reason}`
-    : auto && policy.kind === "detect" && !findCachedLanguageDetector()
+    : auto && policy.kind === "detect" && !findCachedCatalogModel(LANGUAGE_DETECTION_MODEL)
       ? "Auto needs the language detector, which is missing. Choose the model again to download it."
       : undefined;
   const autoNote = !auto || !skipped.length ? undefined

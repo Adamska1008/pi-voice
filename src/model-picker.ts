@@ -30,6 +30,7 @@ import {
   type ModelBenchmark,
 } from "./recommendations.js";
 import {
+  downloadAction,
   MANUAL_LANGUAGE_TAG,
   ON_DISK_LABEL,
   matchesCatalogSearch,
@@ -42,7 +43,6 @@ import { ModelSelectionController } from "./model-selection-controller.js";
 import { ModelRatingsHelp } from "./model-ratings-help.js";
 import type { CatalogModelActivation } from "./model-activation.js";
 import { autoLanguagePolicy, undetectablePreferences } from "./language-detection-policy.js";
-import { languageDetectorDownloadNote, modelDownloadAction } from "./language-detection-model.js";
 import { VoiceKeys } from "./keybindings.js";
 import type { TranscriptionLanguage } from "./settings.js";
 import {
@@ -655,7 +655,7 @@ export class CatalogModelPicker extends Container implements Focusable {
     const model = this.highlightedModel();
     const notices = model ? this.modelNotices(model) : "";
     const noticeLines = notices ? new Text(notices, TEXT_PADDING, 0).render(width).length : 0;
-    // Description, features, bundled-download disclosure, and policy warnings.
+    // Description, features, and the undetectable-language warning.
     return 2 + feedbackLines + noticeLines;
   }
 
@@ -785,10 +785,8 @@ export class CatalogModelPicker extends Container implements Focusable {
   }
 
   private modelNotices(model: CatalogModel): string {
-    const note = languageDetectorDownloadNote(model);
     const skipped = undetectablePreferences(model, this.preferredLanguages);
-    return (note ? `\n${this.theme.fg("muted", note)}` : "") +
-      (skipped.length ? `\n${this.theme.fg("warning", `Auto can't detect ${skipped.map(displayLanguage).join(", ")}.`)}` : "");
+    return skipped.length ? `\n${this.theme.fg("warning", `Auto can't detect ${skipped.map(displayLanguage).join(", ")}.`)}` : "";
   }
 
   private finishFooter(query: string): void {
@@ -806,7 +804,7 @@ export class CatalogModelPicker extends Container implements Focusable {
     const confirmLabel = this.rows[this.selectedIndex]?.type === "fold"
       ? this.folded ? "show" : "hide"
       : highlighted
-        ? modelDownloadAction(highlighted, this.selection.cachedById.has(highlighted.id))
+        ? downloadAction(highlighted, this.selection.cachedById.has(highlighted.id))
         : "choose";
     this.footer.setText(
       `${this.theme.fg("dim", shown)}  ${statusLegend}  ${this.keys.hint("voice.models.ratingsHelp", "rating guide")}\n${this.keys.navHint("navigate")}  ${this.keys.hint("tui.select.confirm", confirmLabel)}  ${this.keys.hint("tui.select.cancel", closeLabel)}`,

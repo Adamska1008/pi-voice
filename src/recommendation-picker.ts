@@ -14,7 +14,7 @@ import {
 } from "./catalog.js";
 import type { CatalogModelActivation } from "./model-activation.js";
 import { undetectablePreferences } from "./language-detection-policy.js";
-import { languageDetectorDownloadNote, modelDownloadAction } from "./language-detection-model.js";
+import { downloadAction } from "./model-cells.js";
 import { ModelSelectionController } from "./model-selection-controller.js";
 import { VoiceKeys } from "./keybindings.js";
 import {
@@ -280,8 +280,6 @@ export class RecommendedModelPicker extends Container implements Focusable {
     if (skipped.length) {
       details.addChild(new Text(this.theme.fg("warning", `Auto can't detect ${skipped.map(displayLanguage).join(", ")}.`), LIST_PADDING + 2, 0));
     }
-    const note = languageDetectorDownloadNote(recommendation.model);
-    if (note) details.addChild(new Text(this.theme.fg("muted", note), LIST_PADDING + 2, 0));
     return details;
   }
 
@@ -394,7 +392,7 @@ export class RecommendedModelPicker extends Container implements Focusable {
     if (!row) return "choose";
     if (row.type !== "model") return this.rowLabel(row).action;
     const model = row.recommendation.model;
-    return modelDownloadAction(model, this.selection.cachedById.has(model.id));
+    return downloadAction(model, this.selection.cachedById.has(model.id));
   }
 
   override render(width: number): string[] {

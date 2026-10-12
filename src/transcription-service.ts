@@ -1,3 +1,4 @@
+import { LANGUAGE_DETECTION_MODEL } from "./catalog.js";
 import { Deferred } from "./deferred.js";
 import { detectLanguage, settingsLanguagePolicy, type AutoLanguagePolicy } from "./language-detection-policy.js";
 import type { TranscribeSettings } from "./settings.js";
@@ -516,8 +517,8 @@ export class TranscriptionService {
   private async ensureDetector(): Promise<ReusableBackend> {
     if (!this.detector) {
       // Keeps Hugging Face modules off the path of every other take.
-      const { findCachedLanguageDetector } = await import("./language-detection-model.js");
-      const cached = findCachedLanguageDetector();
+      const { findCachedCatalogModel } = await import("./models.js");
+      const cached = findCachedCatalogModel(LANGUAGE_DETECTION_MODEL);
       if (!cached) {
         throw new Error("The language detector is missing. Choose the model again in /voice-settings to download it.");
       }

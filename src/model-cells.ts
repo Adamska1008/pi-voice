@@ -17,6 +17,7 @@ import {
   type RecommendationRole,
 } from "./recommendations.js";
 import { requiresLanguageDetector } from "./language-detection-policy.js";
+import { findIncompleteDownload, pendingDownloads } from "./models.js";
 import { LIST_PADDING, padToWidth, selectionMarker } from "./ui-components.js";
 
 type UiTheme = ExtensionContext["ui"]["theme"];
@@ -202,6 +203,15 @@ export function modelDetailText(
     ? `\n${theme.fg(feedback.type, feedback.text)}`
     : "";
   return `${description}\n${theme.fg("dim", features.join(" · "))}${feedbackText}`;
+}
+
+/** A picker's action for a model: "choose", or what is left to download. */
+export function downloadAction(model: CatalogModel, modelCached: boolean): string {
+  const pending = pendingDownloads(model, modelCached);
+  if (!pending.length) return "choose";
+  const partial = pending.map(findIncompleteDownload);
+  const bytes = pending.reduce((sum, item, index) => sum + item.size - (partial[index]?.bytes ?? 0), 0);
+  return `${partial.some(Boolean) ? "resume" : "download"} ${formatBinarySize(bytes)}`;
 }
 
 /**
