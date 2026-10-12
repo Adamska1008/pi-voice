@@ -1,15 +1,19 @@
 import type { CatalogModel } from "./catalog.js";
 import { downloadCatalogModel, findCachedCatalogModel, type CachedCatalogModel } from "./models.js";
-import { writeSettings, type TranscribeSettings } from "./settings.js";
+import { manualTranscriptionLanguage, writeSettings, type TranscribeSettings } from "./settings.js";
+import { LANGUAGE_DETECTION_MODEL, needsLanguageDetectorDownload } from "./language-detection-model.js";
+
+export type ActivationProgress = { downloaded: number; total: number; message?: string };
+export type ActivationResult = { path: string; warning?: string };
 
 export type CatalogModelActivation = (
   model: CatalogModel,
   options: {
     cached: CachedCatalogModel | undefined;
     signal: AbortSignal;
-    onProgress: (progress: { downloaded: number; total: number }) => void;
+    onProgress: (progress: ActivationProgress) => void;
   },
-) => Promise<{ path: string }>;
+) => Promise<ActivationResult>;
 
 /**
  * The download-then-save pipeline behind the model picker, shared by
@@ -20,6 +24,7 @@ export type CatalogModelActivation = (
 export function createModelActivation(options: {
   buildSettings: (model: CatalogModel, path: string) => TranscribeSettings;
   onCommitted: (settings: TranscribeSettings) => void;
+  onWarning?: (message: string) => void;
 }): {
   activate: CatalogModelActivation;
   /** Resolves once every commit enqueued so far has landed (or failed). */
@@ -32,6 +37,10 @@ export function createModelActivation(options: {
     { cached, signal, onProgress },
   ) => {
     let path: string;
+    let warning: string | undefined;
+    const detectorMissing = needsLanguageDetectorDownload(model);
+    const asrBytes = cached ? 0 : model.size;
+    const total = asrBytes + (detectorMissing ? LANGUAGE_DETECTION_MODEL.size : 0);
     if (cached) {
       // The picker listed the cache when it opened; re-check so settings
       // never point at a file that has since been evicted. Integrity is
@@ -44,7 +53,28 @@ export function createModelActivation(options: {
       }
       path = stillCached.path;
     } else {
-      path = await downloadCatalogModel(model, { signal, onProgress });
+      path = await downloadCatalogModel(model, {
+        signal,
+        onProgress: (progress) => onProgress({ ...progress, total }),
+      });
+    }
+
+    if (detectorMissing) {
+      try {
+        onProgress({ downloaded: asrBytes, total, message: "Downloading shared language detector…" });
+        await downloadCatalogModel(LANGUAGE_DETECTION_MODEL, {
+          signal,
+          onProgress: (progress) => onProgress({
+            downloaded: asrBytes + progress.downloaded, total,
+            message: "Downloading shared language detector…",
+          }),
+        });
+      } catch (error) {
+        // Cancellation is never a settings commit. Other failures leave the
+        // verified ASR in the cache and select a usable manual language.
+        signal.throwIfAborted();
+        warning = `Language detector download failed: ${error instanceof Error ? error.message : String(error)}. The transcription model is cached; a fixed language is selected. Choose the model again to retry the download, then enable Auto in settings, or keep selecting a transcription language manually.`;
+      }
     }
 
     const commit = commitQueue.then(async () => {
@@ -54,6 +84,9 @@ export function createModelActivation(options: {
       let settings: TranscribeSettings;
       try {
         settings = options.buildSettings(model, path);
+        if (warning && settings.transcriptionLanguage === "auto") {
+          settings.transcriptionLanguage = manualTranscriptionLanguage(model, settings.preferredLanguages);
+        }
         await writeSettings(settings);
       } catch (error) {
         throw new Error(
@@ -67,7 +100,10 @@ export function createModelActivation(options: {
       () => undefined,
     );
     await commit;
-    return { path };
+    if (warning) {
+      try { options.onWarning?.(warning); } catch { /* Notification is not part of the save. */ }
+    }
+    return { path, ...(warning ? { warning } : {}) };
   };
 
   return { activate, waitForCommits: () => commitQueue };

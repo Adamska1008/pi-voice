@@ -1,10 +1,12 @@
 import { readFile, rename, unlink, writeFile } from "node:fs/promises";
 import {
+  displayLanguage,
   languageIdentity,
   getCatalogModel,
   resolveModelLanguage,
   type CatalogModel,
 } from "./catalog.js";
+import { autoLanguagePolicy, requiresLanguageDetector } from "./language-detection-policy.js";
 import { DEFAULT_SHORTCUT, normalizeShortcut } from "./shortcut-core.js";
 import { legacySettingsPath, settingsPath } from "./settings-path.js";
 
@@ -26,7 +28,7 @@ function defaultChineseOutput(): ChineseOutput {
   return "simplified";
 }
 
-/** "auto" asks a capable model to detect the language; otherwise this is a language code. */
+/** "auto" uses native detection, a fixed preference, or an external detector. */
 export type TranscriptionLanguage = string;
 
 export type TranscribeSettings = {
@@ -90,7 +92,17 @@ function defaultTranscriptionLanguage(
   model: CatalogModel,
   preferredLanguages: readonly string[] = [],
 ): TranscriptionLanguage {
-  if (model.capabilities.languageDetection) return "auto";
+  const policy = autoLanguagePolicy(model, preferredLanguages);
+  if (policy.kind === "native" ||
+    (requiresLanguageDetector(model) && policy.kind !== "unsupported")) return "auto";
+  return manualTranscriptionLanguage(model, preferredLanguages);
+}
+
+/** The first preferred language the model supports, else its first language. */
+export function manualTranscriptionLanguage(
+  model: CatalogModel,
+  preferredLanguages: readonly string[],
+): string {
   for (const language of preferredLanguages) {
     const code = resolveModelLanguage(model, language);
     if (code) return code;
@@ -105,7 +117,9 @@ export function transcriptionLanguageForModel(
   preferredLanguages: readonly string[] = [],
 ): TranscriptionLanguage {
   if (typeof value === "string") {
-    if (value === "auto" && model.capabilities.languageDetection) return value;
+    if (value === "auto" && autoLanguagePolicy(model, preferredLanguages).kind !== "unsupported") {
+      return value;
+    }
     if (value !== "auto") {
       const code = resolveModelLanguage(model, value);
       if (code) return code;
@@ -236,5 +250,20 @@ export function settingsForModel(
     microphone: { ...(options.microphone ?? DEFAULT_MICROPHONE) },
     voiceActivityDetection: options.voiceActivityDetection ?? true,
     model: { source: "catalog", id: modelId, path: modelPath },
+  };
+}
+
+/** Preference edits re-resolve the language, so Auto never outlives support for it. */
+export function settingsWithPreferredLanguages(
+  current: TranscribeSettings,
+  preferredLanguages: readonly string[],
+): { settings: TranscribeSettings; warning?: string } {
+  const settings = settingsForModel(current.model.id, current.model.path, { ...current, preferredLanguages });
+  if (current.transcriptionLanguage !== "auto" || settings.transcriptionLanguage === "auto") return { settings };
+  const policy = autoLanguagePolicy(getCatalogModel(current.model.id)!, settings.preferredLanguages);
+  const reason = policy.kind === "unsupported" ? `${policy.reason} ` : "";
+  return {
+    settings,
+    warning: `Auto unavailable: ${reason}Transcription language is now ${displayLanguage(settings.transcriptionLanguage)}.`,
   };
 }

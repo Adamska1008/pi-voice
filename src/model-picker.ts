@@ -41,7 +41,8 @@ import {
 import { ModelSelectionController } from "./model-selection-controller.js";
 import { ModelRatingsHelp } from "./model-ratings-help.js";
 import type { CatalogModelActivation } from "./model-activation.js";
-import { findIncompleteDownload } from "./models.js";
+import { autoLanguagePolicy } from "./language-detection-policy.js";
+import { languageDetectorDownloadNote, modelDownloadAction } from "./language-detection-model.js";
 import { VoiceKeys } from "./keybindings.js";
 import type { TranscriptionLanguage } from "./settings.js";
 import {
@@ -651,8 +652,11 @@ export class CatalogModelPicker extends Container implements Focusable {
     const feedbackLines = this.selection.feedback
       ? new Text(this.selection.feedback.text, TEXT_PADDING, 0).render(width).length
       : 0;
-    // One description line plus the features line.
-    return 2 + feedbackLines;
+    const model = this.highlightedModel();
+    const notices = model ? this.modelNotices(model) : "";
+    const noticeLines = notices ? new Text(notices, TEXT_PADDING, 0).render(width).length : 0;
+    // Description, features, bundled-download disclosure, and policy warnings.
+    return 2 + feedbackLines + noticeLines;
   }
 
   private refresh(): void {
@@ -774,10 +778,17 @@ export class CatalogModelPicker extends Container implements Focusable {
           this.renderWidth,
           TEXT_PADDING,
           this.selection.feedback,
-        ),
+        ) + this.modelNotices(selected),
       );
     }
     this.finishFooter(query);
+  }
+
+  private modelNotices(model: CatalogModel): string {
+    const policy = autoLanguagePolicy(model, this.preferredLanguages);
+    const note = languageDetectorDownloadNote(model);
+    return (note ? `\n${this.theme.fg("muted", note)}` : "") +
+      (policy.kind === "unsupported" ? `\n${this.theme.fg("warning", `Auto unavailable: ${policy.reason}`)}` : "");
   }
 
   private finishFooter(query: string): void {
@@ -794,10 +805,8 @@ export class CatalogModelPicker extends Container implements Focusable {
     const highlighted = this.highlightedModel();
     const confirmLabel = this.rows[this.selectedIndex]?.type === "fold"
       ? this.folded ? "show" : "hide"
-      : highlighted && !this.selection.cachedById.has(highlighted.id)
-        ? findIncompleteDownload(highlighted)
-          ? "resume download"
-          : `download ${formatBinarySize(highlighted.size)}`
+      : highlighted
+        ? modelDownloadAction(highlighted, this.selection.cachedById.has(highlighted.id))
         : "choose";
     this.footer.setText(
       `${this.theme.fg("dim", shown)}  ${statusLegend}  ${this.keys.hint("voice.models.ratingsHelp", "rating guide")}\n${this.keys.navHint("navigate")}  ${this.keys.hint("tui.select.confirm", confirmLabel)}  ${this.keys.hint("tui.select.cancel", closeLabel)}`,
@@ -994,9 +1003,17 @@ export function createTranscriptionLanguagePicker(
         left.label.localeCompare(right.label) ||
         left.value.localeCompare(right.value),
     );
+  const policy = autoLanguagePolicy(model, preferredLanguages);
+  const autoAvailable = model.capabilities.languageDetection ||
+    (model.languages.length > 1 && policy.kind !== "unsupported");
+  const autoDescription = policy.kind === "fixed"
+    ? `Uses ${transcriptionLanguageName(policy.language, model.languages)} for your preferred language.`
+    : policy.kind === "detect"
+      ? `Detects among your preferred languages: ${policy.languages.map((language) => transcriptionLanguageName(language, model.languages)).join(", ")}.`
+      : "Automatically detects the spoken language.";
   const choices: SingleSelectChoice<TranscriptionLanguage>[] = [
-    ...(model.capabilities.languageDetection
-      ? [{ value: "auto", label: "Auto detect" }]
+    ...(autoAvailable
+      ? [{ value: "auto", label: "Auto detect", description: autoDescription }]
       : []),
     ...languages,
   ];
@@ -1008,9 +1025,11 @@ export function createTranscriptionLanguagePicker(
     current,
     {
       title: "Choose transcription language",
-      subtitle: model.capabilities.languageDetection
-        ? "Language expected in recordings, or automatic detection."
-        : "Language expected in recordings.",
+      subtitle: policy.kind === "unsupported" && model.languages.length > 1
+        ? `Auto unavailable: ${policy.reason} Select a transcription language manually, or change preferred languages.`
+        : autoAvailable
+          ? "Language expected in recordings, or automatic detection."
+          : "Language expected in recordings.",
       searchable: true,
       maximumVisible: MAX_VISIBLE_LANGUAGES,
       cancelLabel: "back",

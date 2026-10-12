@@ -152,6 +152,10 @@ export class TryItPane implements Component {
       } else if (needsFasterModel(speechSeconds, transcribeSeconds)) {
         details = fg("warning", `Slow on this machine? Press ${this.keys.keyText("voice.tryIt.model")} to try another model.`);
       }
+      if (state.result.warning) {
+        const warning = fg("warning", state.result.warning);
+        details = details ? `${details}\n${warning}` : warning;
+      }
     } else if (state.phase === "error") {
       activity = fg("error", state.stage === "model" ? "Could not load the model" : state.stage === "capture" ? "Microphone capture failed" : "Transcription failed");
       const message = state.cause instanceof Error ? state.cause.message : String(state.cause);

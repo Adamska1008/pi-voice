@@ -10,8 +10,9 @@ import { CatalogModelPicker, LanguagePicker } from "../src/model-picker.js";
 import { changeOnboardingModel, runModelSelection, runOnboarding } from "../src/onboarding.js";
 import { RecommendedModelPicker } from "../src/recommendation-picker.js";
 import { CATALOG_MODELS } from "../src/catalog.js";
+import { LANGUAGE_DETECTION_MODEL } from "../src/language-detection-model.js";
 import { recommendModels } from "../src/recommendations.js";
-import { readSettings, settingsForModel, writeSettings } from "../src/settings.js";
+import { readSettings, settingsForModel, settingsWithPreferredLanguages, writeSettings } from "../src/settings.js";
 import { cacheCatalogModel, isolatedModelCache } from "./model-cache-helper.js";
 import { keybindings, testTheme, testTui } from "./ui-helpers.js";
 
@@ -78,6 +79,7 @@ for (const entry of ["recommended", "other-models", "single-pick"] as const) {
   test(`Try it changes languages from ${entry}, recomputes picks, and saves them with the model`, async (t) => {
     isolatedSettings(t);
     const cache = isolatedModelCache(t);
+    cacheCatalogModel(cache, LANGUAGE_DETECTION_MODEL);
     const current = initialSettings(entry === "single-pick" ? ["en", "bs"] : ["en"]);
     await writeSettings(current);
     const picks = recommendModels(CATALOG_MODELS, ["en", "zh"]);
@@ -127,6 +129,7 @@ for (const entry of ["recommended", "other-models", "single-pick"] as const) {
 test("a root catalog stays root when another cached model appears while it is open", async (t) => {
   isolatedSettings(t);
   const cache = isolatedModelCache(t);
+  cacheCatalogModel(cache, LANGUAGE_DETECTION_MODEL);
   const current = CATALOG_MODELS.find((model) => model.id === "parakeet-unified-en-0.6b")!;
   const second = CATALOG_MODELS.find((model) => model.id !== current.id)!;
   cacheCatalogModel(cache, current);
@@ -209,6 +212,7 @@ test("back after confirming new languages leaves settings unchanged until a mode
 test("exiting first-run languages after a committed selection preserves saved settings", async (t) => {
   isolatedSettings(t);
   const cache = isolatedModelCache(t);
+  cacheCatalogModel(cache, LANGUAGE_DETECTION_MODEL);
   for (const pick of recommendModels(CATALOG_MODELS, ["en"])) {
     cacheCatalogModel(cache, pick.model);
   }
@@ -276,4 +280,23 @@ test("Tab keeps forward actions while Ctrl+L changes languages across model pane
   catalog.handleInput("\x0c");
   assert.deepEqual(catalogResults, [{ type: "change-languages" }]);
   catalog.dispose();
+});
+
+test("preferred-language edits explicitly fix unsupported Auto and explain every undetectable language", () => {
+  const current = settingsForModel("Fun-ASR-MLT-Nano-2512", "/tmp/fun", {
+    preferredLanguages: ["en", "ja"], transcriptionLanguage: "auto",
+  });
+  for (const code of ["ga", "yue"]) {
+    const updated = settingsWithPreferredLanguages(current, ["en", code]);
+    assert.deepEqual(updated.settings.preferredLanguages, ["en", code]);
+    assert.equal(updated.settings.transcriptionLanguage, "en");
+    assert.match(updated.warning!, /Auto unavailable.*now English/);
+    assert.match(updated.warning!, code === "ga" ? /Irish/ : /Cantonese/);
+  }
+  const supported = settingsWithPreferredLanguages(current, ["en", "ja", "zh"]);
+  assert.equal(supported.settings.transcriptionLanguage, "auto");
+  assert.equal(supported.warning, undefined);
+  const manual = settingsWithPreferredLanguages({ ...current, transcriptionLanguage: "ja" }, ["en", "yue"]);
+  assert.equal(manual.settings.transcriptionLanguage, "ja");
+  assert.equal(manual.warning, undefined);
 });

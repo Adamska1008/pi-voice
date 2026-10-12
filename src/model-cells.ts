@@ -16,6 +16,7 @@ import {
   type AccuracyLetter,
   type RecommendationRole,
 } from "./recommendations.js";
+import { requiresLanguageDetector } from "./language-detection-policy.js";
 import { LIST_PADDING, padToWidth, selectionMarker } from "./ui-components.js";
 
 type UiTheme = ExtensionContext["ui"]["theme"];
@@ -181,18 +182,16 @@ export function modelDetailText(
   width: number,
   padding: number,
   feedback?: { type: "success" | "error" | "muted"; text: string },
-  showManualSelection = false,
 ): string {
   const canonicalLanguages = [...new Set(model.languages.map(canonicalLanguage))];
   const features = [
     canonicalLanguages.length === 1
       ? `${displayLanguage(canonicalLanguages[0]!)} only`
       : `${canonicalLanguages.length} languages`,
-    model.capabilities.languageDetection
+    // Native detection, or the shared detector for multilingual models.
+    model.capabilities.languageDetection || requiresLanguageDetector(model)
       ? "auto language detection"
-      : showManualSelection
-        ? "manual language selection"
-        : undefined,
+      : undefined,
   ].filter((value): value is string => Boolean(value));
   const description = truncateToWidth(
     model.description,
