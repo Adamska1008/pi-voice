@@ -13,7 +13,7 @@ import {
   formatBinarySize,
 } from "./catalog.js";
 import type { CatalogModelActivation } from "./model-activation.js";
-import { autoLanguagePolicy } from "./language-detection-policy.js";
+import { undetectablePreferences } from "./language-detection-policy.js";
 import { languageDetectorDownloadNote, modelDownloadAction } from "./language-detection-model.js";
 import { ModelSelectionController } from "./model-selection-controller.js";
 import { VoiceKeys } from "./keybindings.js";
@@ -204,8 +204,9 @@ export class RecommendedModelPicker extends Container implements Focusable {
       } else {
         text = "A good balance of speed and accuracy.";
       }
-      const policy = autoLanguagePolicy(recommendation.model, this.languages);
-      if (this.languages.length > 1 && (policy.kind === "native" || policy.kind === "detect")) {
+      // Recommended models support every chosen language, so Auto covers
+      // them all unless the detector cannot identify one.
+      if (this.languages.length > 1 && undetectablePreferences(recommendation.model, this.languages).length === 0) {
         const scope = this.languages.length === 2 ? "both languages" : "all your languages";
         text += ` It switches between ${scope} automatically.`;
       }
@@ -275,9 +276,9 @@ export class RecommendedModelPicker extends Container implements Focusable {
         ),
       );
     }
-    const policy = autoLanguagePolicy(recommendation.model, this.languages);
-    if (policy.kind === "unsupported") {
-      details.addChild(new Text(this.theme.fg("warning", `Auto unavailable: ${policy.reason} Select a transcription language manually.`), LIST_PADDING + 2, 0));
+    const skipped = undetectablePreferences(recommendation.model, this.languages);
+    if (skipped.length) {
+      details.addChild(new Text(this.theme.fg("warning", `Auto can't detect ${skipped.map(displayLanguage).join(", ")}.`), LIST_PADDING + 2, 0));
     }
     const note = languageDetectorDownloadNote(recommendation.model);
     if (note) details.addChild(new Text(this.theme.fg("muted", note), LIST_PADDING + 2, 0));

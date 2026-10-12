@@ -1,5 +1,5 @@
 import type { CatalogModel } from "./catalog.js";
-import type { ActivationResult, CatalogModelActivation } from "./model-activation.js";
+import type { CatalogModelActivation } from "./model-activation.js";
 import { needsLanguageDetectorDownload } from "./language-detection-model.js";
 import { findCachedCatalogModel, type CachedCatalogModel } from "./models.js";
 
@@ -43,7 +43,6 @@ export class ModelSelectionController<R> {
       onExit: (result: R) => void;
       findCached?: typeof findCachedCatalogModel;
       now?: () => number;
-      needsCompanion?: (model: CatalogModel) => boolean;
     },
   ) {
     this.findCached = options.findCached ?? findCachedCatalogModel;
@@ -96,7 +95,7 @@ export class ModelSelectionController<R> {
   select(model: CatalogModel): void {
     if (!this.acceptsInput || this.download) return;
     const cached = this.cachedById.get(model.id);
-    const companionMissing = (this.options.needsCompanion ?? needsLanguageDetectorDownload)(model);
+    const companionMissing = needsLanguageDetectorDownload(model);
     if (!companionMissing && !this.target && cached && model.id === this.committedModelId &&
         (this.selectedDuringSession || !this.options.advance)) {
       this.selectedDuringSession = true;
@@ -117,7 +116,7 @@ export class ModelSelectionController<R> {
 
     // Catch synchronous implementations too. The real pipeline reports only
     // after its ordered settings commit, not merely after the download.
-    let work: Promise<ActivationResult>;
+    let work: Promise<{ path: string }>;
     try {
       work = this.activate(model, {
         cached,
@@ -141,7 +140,7 @@ export class ModelSelectionController<R> {
       work = Promise.reject(error);
     }
     void work.then(
-      ({ path, warning }) => {
+      ({ path }) => {
         // A superseded save may already have committed. Record that fact even
         // after disposal; only presentation and navigation ignore stale work.
         this.cachedById.set(model.id, { path });
@@ -150,10 +149,9 @@ export class ModelSelectionController<R> {
         if (this.target !== target) { this.changed(); return; }
         this.target = undefined;
         this.download = undefined;
-        this.feedback = warning ? { type: "error", text: warning }
-          : cached && !companionMissing ? undefined : {
-            type: "success", text: `✓ Downloaded and selected ${model.name}`,
-          };
+        this.feedback = cached && !companionMissing ? undefined : {
+          type: "success", text: `✓ Downloaded and selected ${model.name}`,
+        };
         if (this.pendingExit) this.finish(this.pendingExit.result);
         else if (this.options.advance) this.finish(this.options.completion);
         else this.changed();

@@ -113,9 +113,8 @@ export async function runModelSelection(
       try {
         if (configured) {
           const updated = settingsWithPreferredLanguages(configured, changed.languages);
-          await writeSettings(updated.settings);
-          configured = updated.settings;
-          if (updated.warning) ctx.ui.notify(updated.warning, "warning");
+          await writeSettings(updated);
+          configured = updated;
         } else {
           await options.onPreferredLanguagesChange?.(changed.languages);
         }

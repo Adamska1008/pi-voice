@@ -16,7 +16,8 @@ const token = process.env.HF_TOKEN?.trim();
 const additionalFetchHeaders = token ? { Authorization: `Bearer ${token}` } : undefined;
 let failures = 0;
 
-for (const model of catalog.models) {
+// The language detector is not an ASR model, but its labels are checked the same way.
+for (const model of [...catalog.models, catalog.languageDetector]) {
   const url = `https://huggingface.co/${model.repository}/resolve/${model.revision}/${encodeURIComponent(model.filename)}`;
   try {
     const { metadata } = await gguf(url, { additionalFetchHeaders });

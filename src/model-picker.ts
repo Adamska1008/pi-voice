@@ -41,7 +41,7 @@ import {
 import { ModelSelectionController } from "./model-selection-controller.js";
 import { ModelRatingsHelp } from "./model-ratings-help.js";
 import type { CatalogModelActivation } from "./model-activation.js";
-import { autoLanguagePolicy } from "./language-detection-policy.js";
+import { autoLanguagePolicy, undetectablePreferences } from "./language-detection-policy.js";
 import { languageDetectorDownloadNote, modelDownloadAction } from "./language-detection-model.js";
 import { VoiceKeys } from "./keybindings.js";
 import type { TranscriptionLanguage } from "./settings.js";
@@ -785,10 +785,10 @@ export class CatalogModelPicker extends Container implements Focusable {
   }
 
   private modelNotices(model: CatalogModel): string {
-    const policy = autoLanguagePolicy(model, this.preferredLanguages);
     const note = languageDetectorDownloadNote(model);
+    const skipped = undetectablePreferences(model, this.preferredLanguages);
     return (note ? `\n${this.theme.fg("muted", note)}` : "") +
-      (policy.kind === "unsupported" ? `\n${this.theme.fg("warning", `Auto unavailable: ${policy.reason}`)}` : "");
+      (skipped.length ? `\n${this.theme.fg("warning", `Auto can't detect ${skipped.map(displayLanguage).join(", ")}.`)}` : "");
   }
 
   private finishFooter(query: string): void {
@@ -1004,13 +1004,14 @@ export function createTranscriptionLanguagePicker(
         left.value.localeCompare(right.value),
     );
   const policy = autoLanguagePolicy(model, preferredLanguages);
-  const autoAvailable = model.capabilities.languageDetection ||
-    (model.languages.length > 1 && policy.kind !== "unsupported");
+  const autoAvailable = policy.kind !== "unsupported";
+  const name = (language: string) => transcriptionLanguageName(language, model.languages);
+  const skipped = undetectablePreferences(model, preferredLanguages);
   const autoDescription = policy.kind === "fixed"
-    ? `Uses ${transcriptionLanguageName(policy.language, model.languages)} for your preferred language.`
+    ? `Uses ${name(policy.language)}.`
     : policy.kind === "detect"
-      ? `Detects among your preferred languages: ${policy.languages.map((language) => transcriptionLanguageName(language, model.languages)).join(", ")}.`
-      : "Automatically detects the spoken language.";
+      ? `Detects ${policy.languages.map(name).join(", ")}.${skipped.length ? ` Can't detect ${skipped.map(name).join(", ")}.` : ""}`
+      : "Detects the spoken language.";
   const choices: SingleSelectChoice<TranscriptionLanguage>[] = [
     ...(autoAvailable
       ? [{ value: "auto", label: "Auto detect", description: autoDescription }]
@@ -1025,8 +1026,8 @@ export function createTranscriptionLanguagePicker(
     current,
     {
       title: "Choose transcription language",
-      subtitle: policy.kind === "unsupported" && model.languages.length > 1
-        ? `Auto unavailable: ${policy.reason} Select a transcription language manually, or change preferred languages.`
+      subtitle: policy.kind === "unsupported" && policy.reason
+        ? `Auto unavailable: ${policy.reason} Change your preferred languages to use it.`
         : autoAvailable
           ? "Language expected in recordings, or automatic detection."
           : "Language expected in recordings.",

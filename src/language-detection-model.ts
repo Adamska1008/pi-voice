@@ -1,25 +1,6 @@
-import { formatBinarySize, type CatalogModel } from "./catalog.js";
-import { DETECTOR_LANGUAGES, requiresLanguageDetector } from "./language-detection-policy.js";
+import { formatBinarySize, LANGUAGE_DETECTION_MODEL, type CatalogModel } from "./catalog.js";
+import { requiresLanguageDetector } from "./language-detection-policy.js";
 import { findCachedCatalogModel, findIncompleteDownload } from "./models.js";
-
-/** Companion only, deliberately not part of the ASR catalog. Metadata pinned
- * from the public Hugging Face model API (including LFS SHA-256). */
-export const LANGUAGE_DETECTION_MODEL: CatalogModel = {
-  id: "voxlingua107-ecapa-q8",
-  name: "VoxLingua107 language detector",
-  description: "Shared spoken-language detector for multilingual transcription models",
-  repository: "handy-computer/lang-id-voxlingua107-ecapa-gguf",
-  revision: "41cf26039e317c6b8883bf0a61b0785dc663fc26",
-  license: "apache-2.0",
-  family: "ECAPA-TDNN",
-  parameters: null,
-  languages: DETECTOR_LANGUAGES,
-  capabilities: { streaming: false, translate: false, languageDetection: true },
-  quant: "Q8_0",
-  filename: "lang-id-voxlingua107-ecapa-Q8_0.gguf",
-  size: 26693632,
-  sha256: "063e6cb0af3d53085fc7d68356dfde5ecee2ffa7bc79855f7e4ff930081bfe3a",
-};
 
 export function findCachedLanguageDetector() {
   return findCachedCatalogModel(LANGUAGE_DETECTION_MODEL);

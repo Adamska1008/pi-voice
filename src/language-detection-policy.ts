@@ -1,6 +1,6 @@
 import type { LangIdResult } from "transcribe-cpp";
 import { CAPTURE_SAMPLE_RATE } from "./audio-constants.js";
-import { displayLanguage, getCatalogModel, languageIdentity, resolveModelLanguage } from "./catalog.js";
+import { LANGUAGE_DETECTION_MODEL, displayLanguage, getCatalogModel, languageIdentity, resolveModelLanguage } from "./catalog.js";
 import { describeError, log } from "./log.js";
 import type { TranscribeSettings } from "./settings.js";
 
@@ -11,28 +11,16 @@ type LanguageModel = {
 };
 
 export type DetectPolicy = { kind: "detect"; languages: string[]; allowed: string[] };
+/** What Auto does for a model. `unsupported` is the only kind that hides Auto. */
 export type AutoLanguagePolicy =
   | { kind: "native" }
   | { kind: "fixed"; language: string }
   | DetectPolicy
-  | { kind: "unsupported"; reason: string };
-
-// Exact labels from transcribe.cpp/catalog/lang-id-voxlingua107-ecapa.json.
-// In particular, Cantonese is not a Mandarin alias and Irish is not supported.
-export const DETECTOR_LANGUAGES = [
-  "ab", "af", "am", "ar", "as", "az", "ba", "be", "bg", "bn", "bo", "br",
-  "bs", "ca", "ceb", "cs", "cy", "da", "de", "el", "en", "eo", "es", "et",
-  "eu", "fa", "fi", "fo", "fr", "gl", "gn", "gu", "gv", "ha", "haw", "hi",
-  "hr", "ht", "hu", "hy", "ia", "id", "is", "it", "iw", "ja", "jw", "ka",
-  "kk", "km", "kn", "ko", "la", "lb", "ln", "lo", "lt", "lv", "mg", "mi",
-  "mk", "ml", "mn", "mr", "ms", "mt", "my", "ne", "nl", "nn", "no", "oc",
-  "pa", "pl", "ps", "pt", "ro", "ru", "sa", "sco", "sd", "si", "sk", "sl",
-  "sn", "so", "sq", "sr", "su", "sv", "sw", "ta", "te", "tg", "th", "tk",
-  "tl", "tr", "tt", "uk", "ur", "uz", "vi", "war", "yi", "yo", "zh",
-] as const;
+  /** `reason` is absent when there is nothing to explain (a one-language model). */
+  | { kind: "unsupported"; reason?: string };
 
 const detectorCodes = new Map<string, string>(
-  DETECTOR_LANGUAGES.map((code) => [languageIdentity(code), code]),
+  LANGUAGE_DETECTION_MODEL.languages.map((code) => [languageIdentity(code), code]),
 );
 
 /** Return the detector's own label (iw/jw/tl/no included). */
@@ -46,14 +34,8 @@ export function requiresLanguageDetector(model: LanguageModel): boolean {
     new Set(model.languages.map(languageIdentity)).size > 1;
 }
 
-/** Resolve Auto strictly: never silently drop a compatible but undetectable language. */
-export function autoLanguagePolicy(
-  model: LanguageModel,
-  preferred: readonly string[],
-): AutoLanguagePolicy {
-  // Native detection retains its existing unrestricted semantics.
-  if (model.capabilities.languageDetection) return { kind: "native" };
-
+/** Preferred languages this model supports, in preference order, one per identity. */
+function compatiblePreferences(model: LanguageModel, preferred: readonly string[]): string[] {
   const byIdentity = new Map<string, string>();
   for (const preference of preferred) {
     const language = resolveModelLanguage(model, preference);
@@ -61,25 +43,35 @@ export function autoLanguagePolicy(
       byIdentity.set(languageIdentity(language), language);
     }
   }
-  const languages = [...byIdentity.values()];
+  return [...byIdentity.values()];
+}
 
+/** Supported preferred languages the external detector cannot identify (e.g. Irish). */
+export function undetectablePreferences(model: LanguageModel, preferred: readonly string[]): string[] {
+  if (!requiresLanguageDetector(model)) return [];
+  return compatiblePreferences(model, preferred).filter((language) => detectorLanguageCode(language) === undefined);
+}
+
+/**
+ * Resolve Auto. Detection runs among the supported preferred languages the
+ * detector knows; undetectable ones are skipped (see undetectablePreferences).
+ * With fewer than two detectable languages, Auto is the first preference.
+ */
+export function autoLanguagePolicy(
+  model: LanguageModel,
+  preferred: readonly string[],
+): AutoLanguagePolicy {
+  // Native detection retains its existing unrestricted semantics.
+  if (model.capabilities.languageDetection) return { kind: "native" };
+  if (!requiresLanguageDetector(model)) return { kind: "unsupported" };
+
+  const languages = compatiblePreferences(model, preferred);
   if (languages.length === 0) {
-    return {
-      kind: "unsupported",
-      reason: "Auto is unavailable because none of your preferred languages are supported by this model. Choose a transcription language manually or choose a different model.",
-    };
+    return { kind: "unsupported", reason: "None of your preferred languages are supported by this model." };
   }
-  // No detector is needed for a single compatible identity, even Irish/Cantonese.
-  if (languages.length === 1) return { kind: "fixed", language: languages[0]! };
-
-  const unsupported = languages.filter((language) => detectorLanguageCode(language) === undefined);
-  if (unsupported.length > 0) {
-    return {
-      kind: "unsupported",
-      reason: `Auto language detection does not support ${unsupported.map(displayLanguage).join(", ")}. Choose a transcription language manually or choose a different model.`,
-    };
-  }
-  return { kind: "detect", languages, allowed: languages.map((language) => detectorLanguageCode(language)!) };
+  const detectable = languages.filter((language) => detectorLanguageCode(language) !== undefined);
+  if (detectable.length < 2) return { kind: "fixed", language: languages[0]! };
+  return { kind: "detect", languages: detectable, allowed: detectable.map((language) => detectorLanguageCode(language)!) };
 }
 
 /** The policy a take runs with: an explicit language is fixed. */

@@ -1,12 +1,11 @@
 import { readFile, rename, unlink, writeFile } from "node:fs/promises";
 import {
-  displayLanguage,
   languageIdentity,
   getCatalogModel,
   resolveModelLanguage,
   type CatalogModel,
 } from "./catalog.js";
-import { autoLanguagePolicy, requiresLanguageDetector } from "./language-detection-policy.js";
+import { autoLanguagePolicy } from "./language-detection-policy.js";
 import { DEFAULT_SHORTCUT, normalizeShortcut } from "./shortcut-core.js";
 import { legacySettingsPath, settingsPath } from "./settings-path.js";
 
@@ -92,17 +91,7 @@ function defaultTranscriptionLanguage(
   model: CatalogModel,
   preferredLanguages: readonly string[] = [],
 ): TranscriptionLanguage {
-  const policy = autoLanguagePolicy(model, preferredLanguages);
-  if (policy.kind === "native" ||
-    (requiresLanguageDetector(model) && policy.kind !== "unsupported")) return "auto";
-  return manualTranscriptionLanguage(model, preferredLanguages);
-}
-
-/** The first preferred language the model supports, else its first language. */
-export function manualTranscriptionLanguage(
-  model: CatalogModel,
-  preferredLanguages: readonly string[],
-): string {
+  if (autoLanguagePolicy(model, preferredLanguages).kind !== "unsupported") return "auto";
   for (const language of preferredLanguages) {
     const code = resolveModelLanguage(model, language);
     if (code) return code;
@@ -257,13 +246,6 @@ export function settingsForModel(
 export function settingsWithPreferredLanguages(
   current: TranscribeSettings,
   preferredLanguages: readonly string[],
-): { settings: TranscribeSettings; warning?: string } {
-  const settings = settingsForModel(current.model.id, current.model.path, { ...current, preferredLanguages });
-  if (current.transcriptionLanguage !== "auto" || settings.transcriptionLanguage === "auto") return { settings };
-  const policy = autoLanguagePolicy(getCatalogModel(current.model.id)!, settings.preferredLanguages);
-  const reason = policy.kind === "unsupported" ? `${policy.reason} ` : "";
-  return {
-    settings,
-    warning: `Auto unavailable: ${reason}Transcription language is now ${displayLanguage(settings.transcriptionLanguage)}.`,
-  };
+): TranscribeSettings {
+  return settingsForModel(current.model.id, current.model.path, { ...current, preferredLanguages });
 }

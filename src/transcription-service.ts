@@ -490,7 +490,8 @@ export class TranscriptionService {
         (await this.ensureDetector()).identifyLanguage!(clip, allowed, signal)));
       signal.throwIfAborted();
     } else if (policy.kind === "unsupported") {
-      throw new Error(`${policy.reason} Open /voice-settings and choose a transcription language.`);
+      // Settings normalization drops Auto first; this guards stale settings.
+      throw new Error(`Auto is unavailable for this model${policy.reason ? `: ${policy.reason}` : "."} Choose a transcription language in /voice-settings.`);
     }
     const text = await backend.transcribe(pcm, transcriptionOptions(settings, language, signal));
     return warning ? { text, warning } : { text };

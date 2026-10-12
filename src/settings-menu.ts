@@ -3,7 +3,7 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
-import { autoLanguagePolicy } from "./language-detection-policy.js";
+import { autoLanguagePolicy, undetectablePreferences } from "./language-detection-policy.js";
 import { findCachedLanguageDetector } from "./language-detection-model.js";
 import { microphonePermission, type Permission } from "./audio.js";
 import { displayLanguage, getCatalogModel } from "./catalog.js";
@@ -91,11 +91,16 @@ function settingsHomeChoices(
 ): SettingsHomeChoice[] {
   const model = getCatalogModel(configured.model.id)!;
   const policy = autoLanguagePolicy(model, configured.preferredLanguages);
-  const autoIssue = policy.kind === "unsupported" && model.languages.length > 1
+  const auto = configured.transcriptionLanguage === "auto";
+  const skipped = undetectablePreferences(model, configured.preferredLanguages);
+  const autoIssue = policy.kind === "unsupported" && policy.reason
     ? `Auto unavailable: ${policy.reason}`
-    : configured.transcriptionLanguage === "auto" && policy.kind === "detect" && !findCachedLanguageDetector()
+    : auto && policy.kind === "detect" && !findCachedLanguageDetector()
       ? "Auto needs the language detector, which is missing. Choose the model again to download it."
       : undefined;
+  const autoNote = !auto || !skipped.length ? undefined
+    : policy.kind === "fixed" ? `Auto always uses ${displayLanguage(policy.language)}.`
+    : `Auto can't detect ${skipped.map(displayLanguage).join(", ")}.`;
   const choices: SettingsHomeChoice[] = [
     {
       value: "preferred-languages",
@@ -113,7 +118,7 @@ function settingsHomeChoices(
       value: "transcription-language",
       label: "Transcription language",
       summary: transcriptionLanguageSummary(configured.transcriptionLanguage, model),
-      description: autoIssue ?? "Language expected in recordings, or automatic detection when supported",
+      description: autoIssue ?? autoNote ?? "Language expected in recordings, or automatic detection when supported",
       alert: Boolean(autoIssue),
     },
   ];
@@ -317,10 +322,12 @@ export async function showSettingsMenu(
       if (!selection || languagesEqual(selection.languages, configured.preferredLanguages)) {
         continue;
       }
-      const updated = settingsWithPreferredLanguages(configured, selection.languages);
-      if (await saveUpdatedSettings(ctx, configured, updated.settings, "Preferred languages saved") && updated.warning) {
-        ctx.ui.notify(updated.warning, "warning");
-      }
+      await saveUpdatedSettings(
+        ctx,
+        configured,
+        settingsWithPreferredLanguages(configured, selection.languages),
+        "Preferred languages saved",
+      );
       continue;
     }
 
@@ -337,10 +344,9 @@ export async function showSettingsMenu(
         onPreferredLanguagesChange: async (preferredLanguages) => {
           if (languagesEqual(preferredLanguages, configured.preferredLanguages)) return;
           const next = settingsWithPreferredLanguages(configured, preferredLanguages);
-          await writeSettings(next.settings);
-          Object.assign(configured, next.settings);
+          await writeSettings(next);
+          Object.assign(configured, next);
           ctx.ui.notify("Preferred languages saved", "info");
-          if (next.warning) ctx.ui.notify(next.warning, "warning");
         },
       });
       if (updated) Object.assign(configured, updated);

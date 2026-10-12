@@ -1,10 +1,11 @@
 import type { CatalogModel } from "./catalog.js";
+import { LANGUAGE_DETECTION_MODEL } from "./catalog.js";
+import { needsLanguageDetectorDownload } from "./language-detection-model.js";
+import { describeError, log } from "./log.js";
 import { downloadCatalogModel, findCachedCatalogModel, type CachedCatalogModel } from "./models.js";
-import { manualTranscriptionLanguage, writeSettings, type TranscribeSettings } from "./settings.js";
-import { LANGUAGE_DETECTION_MODEL, needsLanguageDetectorDownload } from "./language-detection-model.js";
+import { writeSettings, type TranscribeSettings } from "./settings.js";
 
 export type ActivationProgress = { downloaded: number; total: number; message?: string };
-export type ActivationResult = { path: string; warning?: string };
 
 export type CatalogModelActivation = (
   model: CatalogModel,
@@ -13,7 +14,7 @@ export type CatalogModelActivation = (
     signal: AbortSignal;
     onProgress: (progress: ActivationProgress) => void;
   },
-) => Promise<ActivationResult>;
+) => Promise<{ path: string }>;
 
 /**
  * The download-then-save pipeline behind the model picker, shared by
@@ -24,7 +25,7 @@ export type CatalogModelActivation = (
 export function createModelActivation(options: {
   buildSettings: (model: CatalogModel, path: string) => TranscribeSettings;
   onCommitted: (settings: TranscribeSettings) => void;
-  onWarning?: (message: string) => void;
+  onWarning: (message: string) => void;
 }): {
   activate: CatalogModelActivation;
   /** Resolves once every commit enqueued so far has landed (or failed). */
@@ -37,7 +38,7 @@ export function createModelActivation(options: {
     { cached, signal, onProgress },
   ) => {
     let path: string;
-    let warning: string | undefined;
+    let detectorFailed = false;
     const detectorMissing = needsLanguageDetectorDownload(model);
     const asrBytes = cached ? 0 : model.size;
     const total = asrBytes + (detectorMissing ? LANGUAGE_DETECTION_MODEL.size : 0);
@@ -70,10 +71,12 @@ export function createModelActivation(options: {
           }),
         });
       } catch (error) {
-        // Cancellation is never a settings commit. Other failures leave the
-        // verified ASR in the cache and select a usable manual language.
+        // Cancellation is never a settings commit. Other failures still
+        // select the model: without the detector, Auto falls back to the
+        // first preferred language, and the settings menu flags it.
         signal.throwIfAborted();
-        warning = `Language detector download failed: ${error instanceof Error ? error.message : String(error)}. The transcription model is cached; a fixed language is selected. Choose the model again to retry the download, then enable Auto in settings, or keep selecting a transcription language manually.`;
+        log.warn(`Language detector download failed: ${describeError(error)}`);
+        detectorFailed = true;
       }
     }
 
@@ -84,9 +87,6 @@ export function createModelActivation(options: {
       let settings: TranscribeSettings;
       try {
         settings = options.buildSettings(model, path);
-        if (warning && settings.transcriptionLanguage === "auto") {
-          settings.transcriptionLanguage = manualTranscriptionLanguage(model, settings.preferredLanguages);
-        }
         await writeSettings(settings);
       } catch (error) {
         throw new Error(
@@ -100,10 +100,12 @@ export function createModelActivation(options: {
       () => undefined,
     );
     await commit;
-    if (warning) {
-      try { options.onWarning?.(warning); } catch { /* Notification is not part of the save. */ }
+    if (detectorFailed) {
+      try {
+        options.onWarning("Couldn't download the language detector, so Auto will use your first preferred language. Choose the model again to retry.");
+      } catch { /* Notification is not part of the save. */ }
     }
-    return { path, ...(warning ? { warning } : {}) };
+    return { path };
   };
 
   return { activate, waitForCommits: () => commitQueue };
