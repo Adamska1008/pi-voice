@@ -29,32 +29,6 @@ The extension registers:
 
 `/transcribe` remains available as a compatibility alias for `/voice-settings`.
 
-### Automatic language identification
-
-Multilingual models that require a language hint can also use **Auto detect**.
-Their download includes a shared VoxLingua107 language-identification model
-(about 27 MB), with the additional size shown before downloading. Once cached,
-that companion is reused by other models. Models with native detection are
-unchanged; single-language models do not need the companion.
-
-External detection chooses among your preferred languages supported by the
-transcription model. With only one compatible preferred language, Pi Voice uses
-it directly. With multiple, every candidate must be supported by the detector.
-Cantonese and Irish are not detector labels: select an explicit transcription
-language or a different model for combinations that include them. Mandarin is
-not treated as an alias for Cantonese.
-
-Detection runs on the first seven seconds of each recording or file once it
-ends; the detector loads while you speak. One language is used
-for the entire take (and for each file). The detector's top pick among your
-preferred languages is always used; it carries a warning when it is less than
-1.5x as likely as the runner-up, and every decision is logged. Only a detector
-failure falls back to the first compatible preferred language. Clips under
-500 ms skip detection. There is no padding, silence filtering, or voice activity detection in this version,
-and silence can still receive a prediction.
-Transcription never downloads a model: if the detector is missing, choose the
-model again in `/voice-settings` to download it.
-
 ## Upgrading from pi-transcribe
 
 It's recommended to install Pi Voice via NPM. If you have an older install of pi-transcribe uninstall it via: 
