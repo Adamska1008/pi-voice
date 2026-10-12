@@ -39,8 +39,7 @@ export class FakeMicrophone {
 export class FakeReservation implements DictationReservation {
   readonly prepared = new Deferred();
   readonly ready = this.prepared.promise;
-  /** Resolve with text alone, or a transcript carrying a warning. */
-  readonly result = new Deferred<string | Transcript>();
+  readonly result = new Deferred<string>();
   readonly chunks: Float32Array[] = [];
   cancelled = 0;
   submissions = 0;
@@ -51,7 +50,7 @@ export class FakeReservation implements DictationReservation {
     this.submissions++;
     this.pcm = pcm;
     this.signal = signal;
-    return this.result.promise.then((result) => typeof result === "string" ? { text: result } : result);
+    return this.result.promise.then((text) => ({ text }));
   }
   cancel(): void { if (!this.submissions) this.cancelled++; }
 }
