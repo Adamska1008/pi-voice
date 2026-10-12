@@ -94,45 +94,43 @@ export function settingsLanguagePolicy(settings: TranscribeSettings): AutoLangua
 
 const WINDOW_SAMPLES = 7 * CAPTURE_SAMPLE_RATE;
 const MIN_SAMPLES = CAPTURE_SAMPLE_RATE / 2;
-// Conservative initial operating points, not calibrated probabilities. The
-// allowed-set softmax alone can be very confident on out-of-set audio.
-const CONFIDENCE = { probability: 0.6, allowedMass: 0.5, margin: 0.15 } as const;
+// Warn when the top pick is less than 1.5x as likely as the runner-up (with
+// two languages: p < 0.6). The pick is used either way.
+const UNSURE_RATIO = 1.5;
 
 /**
- * Pick one language for a whole clip from its first seven seconds. Low
- * confidence or detector failure falls back to the first preferred language.
+ * Pick one language for a whole clip from its first seven seconds: always the
+ * top candidate. Only skipped (< 500 ms), failed, or malformed detection falls
+ * back to the first preferred language.
  */
 export async function detectLanguage(
   policy: DetectPolicy,
   pcm: Float32Array,
   identify: (pcm: Float32Array, allowed: readonly string[]) => Promise<LangIdResult>,
 ): Promise<{ language: string; warning?: string }> {
-  const warnings: string[] = [];
-  if (pcm.length < MIN_SAMPLES) {
-    warnings.push("Audio is shorter than 500 ms; language detection was skipped.");
-  } else {
-    if (pcm.length <= CAPTURE_SAMPLE_RATE) {
-      warnings.push("Language detection may be unreliable for recordings of 1 second or less.");
-    }
-    try {
-      const result = await identify(pcm.subarray(0, WINDOW_SAMPLES), policy.allowed);
-      const [winner, second] = result.candidates;
-      const language = policy.languages[policy.allowed.indexOf(result.code ?? "")];
-      if (
-        language && winner &&
-        winner.p >= CONFIDENCE.probability &&
-        result.allowedMass >= CONFIDENCE.allowedMass &&
-        winner.p - (second?.p ?? 0) >= CONFIDENCE.margin
-      ) {
-        return { language, ...(warnings.length ? { warning: warnings.join(" ") } : {}) };
-      }
-      warnings.push("Language detection confidence was low.");
-    } catch (error) {
-      log.warn(`Language detection failed: ${describeError(error)}`);
-      warnings.push(`Language detection failed: ${describeError(error)}`);
-    }
-  }
   const fallback = policy.languages[0]!;
-  warnings.push(`Used ${displayLanguage(fallback)} (${fallback}), the first compatible preferred language.`);
-  return { language: fallback, warning: warnings.join(" ") };
+  const usedFallback = `Couldn't tell the language. Used ${displayLanguage(fallback)}.`;
+  if (pcm.length < MIN_SAMPLES) {
+    return { language: fallback, warning: `Too short to tell the language. Used ${displayLanguage(fallback)}.` };
+  }
+  try {
+    const result = await identify(pcm.subarray(0, WINDOW_SAMPLES), policy.allowed);
+    const [first, second] = result.candidates;
+    const language = policy.languages[policy.allowed.indexOf(result.code ?? "")];
+    const scores = result.candidates.map((c) => `${c.code} ${(c.p * 100).toFixed(1)}%`).join(", ");
+    log.info(`language detection: ${language ?? "none"} (${scores}; ` +
+      `${(pcm.length / CAPTURE_SAMPLE_RATE).toFixed(1)} s, allowed mass ${(result.allowedMass * 100).toFixed(1)}%)`);
+    if (!language || !first || !Number.isFinite(first.p)) return { language: fallback, warning: usedFallback };
+    if (second && first.p < UNSURE_RATIO * second.p) {
+      return {
+        language,
+        warning: `Not sure which language this was. Guessed ${displayLanguage(language)} (${Math.floor(first.p * 100)}% sure).`,
+      };
+    }
+    return { language };
+  } catch (error) {
+    log.warn(`Language detection failed: ${describeError(error)}`);
+    // Keep the reason: some failures say how to fix them (e.g. a missing detector).
+    return { language: fallback, warning: `${usedFallback} ${describeError(error)}` };
+  }
 }

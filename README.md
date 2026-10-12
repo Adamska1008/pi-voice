@@ -46,12 +46,12 @@ not treated as an alias for Cantonese.
 
 Detection runs on the first seven seconds of each recording or file once it
 ends; the detector loads while you speak. One language is used
-for the entire take (and for each file). Low confidence or a detector failure
-falls back to the first compatible preferred language, with a warning. Confidence
-thresholds are initial heuristics, not calibrated probabilities. Clips
-under 500 ms skip detection; recordings of one second or less are flagged as
-potentially unreliable. There is no padding, silence filtering, or voice
-activity detection in this version, and silence can still receive a prediction.
+for the entire take (and for each file). The detector's top pick among your
+preferred languages is always used; it carries a warning when it is less than
+1.5x as likely as the runner-up, and every decision is logged. Only a detector
+failure falls back to the first compatible preferred language. Clips under
+500 ms skip detection. There is no padding, silence filtering, or voice activity detection in this version,
+and silence can still receive a prediction.
 Transcription never downloads a model: if the detector is missing, choose the
 model again in `/voice-settings` to download it.
 

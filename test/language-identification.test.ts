@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import type { LangIdResult } from "transcribe-cpp";
 import { getCatalogModel } from "../src/catalog.js";
+import { closeLog, initLog } from "../src/log.js";
 import {
   autoLanguagePolicy,
   detectLanguage,
@@ -33,6 +37,21 @@ test("detection scores the first seven seconds of the clip, restricted to prefer
   assert.deepEqual(pcm, ramp(160000), "identification must not mutate the ASR clip");
 });
 
+test("detection logs the pick, every allowed p, length, and allowed mass", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "pi-voice-lang-"));
+  const path = join(dir, "pi-voice.log");
+  initLog({ path, level: "info" });
+  try {
+    const decision = await detectLanguage(policy, new Float32Array(32000), harness().identify);
+    assert.equal(decision.language, "de");
+    const line = readFileSync(path, "utf8").split("\n").find((entry) => entry.includes("language detection"))!;
+    assert.match(line, /info .*language detection: de \(de 90\.0%, en 10\.0%; 2\.0 s, allowed mass 90\.0%\)$/);
+  } finally {
+    closeLog();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("clips under seven seconds are scored whole, without padding", async () => {
   const h = harness();
   const pcm = ramp(48000);
@@ -46,24 +65,11 @@ test("clips shorter than 500 ms skip inference and use the first compatible pref
   const decision = await detectLanguage(reordered, new Float32Array(7999), h.identify);
   assert.equal(h.calls.length, 0);
   assert.equal(decision.language, "de");
-  assert.match(decision.warning!, /shorter than 500 ms/);
-  assert.match(decision.warning!, /first compatible preferred language/);
+  assert.equal(decision.warning, "Too short to tell the language. Used German.");
 });
 
-test("a 500 ms clip consolidates reliability and fallback warnings", async () => {
-  const h = harness(async () => prediction("de", 0.55));
-  const decision = await detectLanguage(policy, ramp(8000), h.identify);
-  assert.equal(decision.language, "en");
-  assert.match(decision.warning!, /1 second or less/);
-  assert.match(decision.warning!, /confidence was low/);
-  assert.match(decision.warning!, /Used English \(en\)/);
-});
-
-test("a confident one-second winner retains only the short-audio reliability warning", async () => {
-  const decision = await detectLanguage(policy, new Float32Array(16000), harness().identify);
-  assert.equal(decision.language, "de");
-  assert.match(decision.warning!, /1 second or less/);
-  assert.doesNotMatch(decision.warning!, /Used |confidence was low/);
+test("a confident one-second pick has no warning", async () => {
+  assert.deepEqual(await detectLanguage(policy, new Float32Array(16000), harness().identify), { language: "de" });
 });
 
 test("a detector label maps back to the catalog ASR language through aliases", async () => {
@@ -73,31 +79,62 @@ test("a detector label maps back to the catalog ASR language through aliases", a
   assert.deepEqual(await detectLanguage(fun, new Float32Array(32000), h.identify), { language: fun.languages[1] });
 });
 
+test("the top pick always wins, regardless of p or unrestricted mass", async () => {
+  // Observed on real mic audio: correct zh picks at p ~99% with 0.1% mass.
+  for (const [code, p] of [["de", 0.99], ["de", 0.61], ["en", 0.87]] as const) {
+    const decision = await detectLanguage(policy, new Float32Array(32000),
+      harness(async () => prediction(code, p, 0.001, 1 - p)).identify);
+    assert.deepEqual(decision, { language: code });
+  }
+});
+
+test("warn only when the pick is under 1.5x the runner-up, and still use it", async () => {
+  const unsure = await detectLanguage(policy, new Float32Array(32000),
+    harness(async () => prediction("de", 0.55, 0.5, 0.45)).identify);
+  assert.deepEqual(unsure, {
+    language: "de",
+    warning: "Not sure which language this was. Guessed German (55% sure).",
+  });
+  // Three languages: 0.4 vs 0.3 is a 1.33x lead, so it warns despite p < 0.6
+  // being normal with more candidates; 0.5 vs 0.3 is 1.67x, so it does not.
+  const three = autoLanguagePolicy(canary, ["en", "de", "fr"]) as DetectPolicy;
+  const ranked = (top: number, next: number): LangIdResult => ({
+    code: "fr", allowedMass: 0.5,
+    candidates: [
+      { index: 0, code: "fr", name: "fr", p: top, logit: 0 },
+      { index: 1, code: "de", name: "de", p: next, logit: 0 },
+      { index: 2, code: "en", name: "en", p: 1 - top - next, logit: 0 },
+    ],
+  });
+  const close = await detectLanguage(three, new Float32Array(32000), harness(async () => ranked(0.4, 0.3)).identify);
+  assert.equal(close.language, "fr");
+  assert.match(close.warning!, /Guessed French \(40% sure\)/);
+  assert.deepEqual(
+    await detectLanguage(three, new Float32Array(32000), harness(async () => ranked(0.5, 0.3)).identify),
+    { language: "fr" },
+  );
+});
+
 const unreliable: [string, LangIdResult][] = [
-  ["low allowed-set probability", prediction("de", 0.59)],
-  ["low unrestricted allowed mass", prediction("de", 0.95, 0.49)],
-  ["small winner margin", prediction("de", 0.65, 0.9, 0.51)],
   ["nonfinite probability", prediction("de", Number.NaN)],
-  ["nonfinite allowed mass", prediction("de", 0.9, Number.NaN)],
   ["out-of-set winner", prediction("fr")],
   ["missing winner", { code: null, allowedMass: 0.9, candidates: [] }],
 ];
 for (const [reason, result] of unreliable) {
-  test(`${reason} falls back to the first compatible preference, never the detector guess`, async () => {
+  test(`${reason} falls back to the first compatible preference`, async () => {
     const decision = await detectLanguage(policy, new Float32Array(32000), harness(async () => result).identify);
-    assert.equal(decision.language, "en");
-    assert.match(decision.warning!, /confidence was low/);
-    assert.match(decision.warning!, /first compatible preferred language/);
+    assert.deepEqual(decision, { language: "en", warning: "Couldn't tell the language. Used English." });
   });
 }
 
-test("detector failure uses the first preference and says why", async () => {
+test("detector failure uses the first preference and keeps the reason", async () => {
   const decision = await detectLanguage(policy, new Float32Array(32000), harness(async () => {
     throw new Error("The language detector is missing.");
   }).identify);
-  assert.equal(decision.language, "en");
-  assert.match(decision.warning!, /detection failed: The language detector is missing/);
-  assert.match(decision.warning!, /first compatible preferred language/);
+  assert.deepEqual(decision, {
+    language: "en",
+    warning: "Couldn't tell the language. Used English. The language detector is missing.",
+  });
 });
 
 function settings(overrides: Partial<TranscribeSettings>): TranscribeSettings {
