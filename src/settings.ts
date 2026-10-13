@@ -37,6 +37,8 @@ export type TranscribeSettings = {
   transcriptionLanguage: TranscriptionLanguage;
   chineseOutput: ChineseOutput;
   microphone: MicrophoneSetting;
+  /** Transcribe only the speech in a recording, not its silence and noise. */
+  voiceActivityDetection: boolean;
   model: {
     source: "catalog";
     id: string;
@@ -140,6 +142,8 @@ function validateSettings(value: unknown): TranscribeSettings | undefined {
     ),
     chineseOutput: validateChineseOutput(value.chineseOutput),
     microphone,
+    // Settings from before VAD existed get it on, like new ones.
+    voiceActivityDetection: value.voiceActivityDetection !== false,
     model: {
       source: "catalog",
       id: value.model.id,
@@ -206,6 +210,7 @@ type ModelSettingsOptions = {
   transcriptionLanguage?: TranscriptionLanguage;
   chineseOutput?: ChineseOutput;
   microphone?: MicrophoneSetting;
+  voiceActivityDetection?: boolean;
 };
 
 export function settingsForModel(
@@ -230,6 +235,7 @@ export function settingsForModel(
     ),
     chineseOutput: options.chineseOutput ?? defaultChineseOutput(),
     microphone: { ...(options.microphone ?? DEFAULT_MICROPHONE) },
+    voiceActivityDetection: options.voiceActivityDetection ?? true,
     model: { source: "catalog", id: modelId, path: modelPath },
   };
 }

@@ -25,7 +25,7 @@ The extension registers:
 - a configurable terminal shortcut (`Ctrl+Alt+Z` by default) to start and stop recording;
 - `/voice`, which does the same as the shortcut. While recording, `Space` also stops and transcribes, and `Escape` discards;
 - a `transcribe_file` tool that the agent can use to transcribe local audio or video files;
-- `/voice-settings` for preferred languages, model, transcription language, microphone, and shortcut settings.
+- `/voice-settings` for preferred languages, model, transcription language, microphone, voice activity detection, and shortcut settings.
 
 `/transcribe` remains available as a compatibility alias for `/voice-settings`.
 
@@ -42,6 +42,10 @@ If you installed it into a project with `-l`, run `pi remove -l git:github.com/e
 ```bash
 pi install npm:@earendil-works/pi-voice
 ```
+
+## Voice activity detection
+
+While you record, a small [Silero VAD](https://github.com/snakers4/silero-vad) model (about 1 MB, bundled with Pi Voice) scores the audio as it streams in, so only speech, with a short margin around it, is transcribed. Long pauses and background noise are skipped, and a recording with no speech finishes immediately. If the detector is unavailable, the whole recording is transcribed as before. Turn it off in `/voice-settings`.
 
 ## File transcription and FFmpeg
 
