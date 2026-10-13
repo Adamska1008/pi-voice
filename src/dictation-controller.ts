@@ -13,13 +13,10 @@ export type CaptureSinks = {
   onAudio(chunk: Float32Array): void;
   onFailure(error: Error): void;
 };
-/**
- * Voice activity detection for one take. It sees every recorded chunk and
- * hands on, through its callback, only the audio worth transcribing.
- */
+/** Voice activity detection for one take: passes on only the speech. */
 export type SpeechFilter = {
   push(chunk: Float32Array): void;
-  /** Resolves with all kept audio once every pushed chunk is decided. */
+  /** All kept audio, once every pushed chunk is decided. */
   finish(): Promise<Float32Array>;
   discard(): void;
 };
@@ -47,7 +44,7 @@ export type DictationControllerOptions = {
   now?: () => number;
   onChange?: (state: DictationState) => void;
   onAudio?: (chunk: Float32Array) => void;
-  /** Without one (or when it returns undefined), every chunk is transcribed. */
+  /** Without a filter, every chunk is transcribed. */
   createSpeechFilter?: CreateSpeechFilter;
 };
 type Take = {
@@ -280,15 +277,12 @@ export class DictationController {
       const recorded = captured.pcm;
       const interruption = captured.interruption ?? take.interruption;
       if (interruption && recorded.length === 0) throw interruption;
-      // Without VAD the transcript covers the whole recording; with it, only
-      // the speech it kept (which the stream has already been fed).
       const pcm = take.filter ? await take.filter.finish() : recorded;
       if (this.take !== take || take.abort.signal.aborted) return undefined;
       take.chunker.flush();
       let text: string;
       if (take.filter && pcm.length === 0) {
-        // Nothing sounded like speech, so there is nothing to transcribe.
-        take.reservation.cancel();
+        take.reservation.cancel(); // No speech, nothing to transcribe.
         text = "";
       } else {
         stage = "transcription";
@@ -304,14 +298,14 @@ export class DictationController {
         ...(captured.droppedFrames ? { droppedFrames: captured.droppedFrames } : {}),
       };
       this.take = undefined;
-      const empty = text ? "" : "; no speech detected";
-      log.info(
-        `transcribed ${result.speechSeconds.toFixed(1)} s of audio in ${result.transcribeSeconds.toFixed(1)} s${empty}`,
-      );
+      log.info(text
+        ? `transcribed ${(pcm.length / CAPTURE_SAMPLE_RATE).toFixed(1)} s of audio in ${result.transcribeSeconds.toFixed(1)} s`
+        : "no speech detected");
       logStep("idle");
       this.setState({ phase: "result", result });
       return result;
     }).catch((cause: unknown) => {
+      take.filter?.discard();
       take.reservation.cancel(); // Releases the lane if stop failed before submit.
       if (this.disposed || this.take !== take || take.abort.signal.aborted) return undefined;
       this.take = undefined;

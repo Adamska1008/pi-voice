@@ -43,10 +43,6 @@ If you installed it into a project with `-l`, run `pi remove -l git:github.com/e
 pi install npm:@earendil-works/pi-voice
 ```
 
-## Voice activity detection
-
-While you record, a small [Silero VAD](https://github.com/snakers4/silero-vad) model (about 1 MB, bundled with Pi Voice) scores the audio as it streams in, so only speech, with a short margin around it, is transcribed. Long pauses and background noise are skipped, and a recording with no speech finishes immediately. If the detector is unavailable, the whole recording is transcribed as before. To turn it off, set `"voiceActivityDetection": false` in the settings file (`~/.pi/agent/pi-voice.json`).
-
 ## File transcription and FFmpeg
 
 The agent can call `transcribe_file` for local audio or video files. Decoded audio is limited to 128 MiB (about 35 minutes). File decoding requires the `ffmpeg` executable. Install FFmpeg with your system package manager if you don't already have it installed

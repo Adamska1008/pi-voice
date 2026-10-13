@@ -1,4 +1,4 @@
-import { copyFile, cp, mkdtemp, readdir, rm } from "node:fs/promises";
+import { copyFile, mkdtemp, readdir, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 
@@ -30,8 +30,6 @@ try {
     join(process.cwd(), "src/model-ratings-help.md"),
     join(outputDirectory, "src/model-ratings-help.md"),
   );
-  // Nor the bundled VAD model, which src/vad.ts resolves next to src/.
-  await cp(join(process.cwd(), "models"), join(outputDirectory, "models"), { recursive: true });
   const testDirectory = join(outputDirectory, "test");
   const testFiles = (await readdir(testDirectory))
     .filter((name) => name.endsWith(".test.js"))

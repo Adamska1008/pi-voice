@@ -142,7 +142,6 @@ function validateSettings(value: unknown): TranscribeSettings | undefined {
     ),
     chineseOutput: validateChineseOutput(value.chineseOutput),
     microphone,
-    // Settings from before VAD existed get it on, like new ones.
     voiceActivityDetection: value.voiceActivityDetection !== false,
     model: {
       source: "catalog",
