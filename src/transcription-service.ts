@@ -1,4 +1,5 @@
 import { LANGUAGE_DETECTION_MODEL, displayLanguage, getCatalogModel } from "./catalog.js";
+import { isChineseLanguage } from "./chinese.js";
 import { Deferred } from "./deferred.js";
 import {
   detectLanguage,
@@ -85,7 +86,13 @@ function transcriptionOptions(
   language: string | undefined,
   signal?: AbortSignal,
 ): TranscriptionOptions {
-  return { signal, language, chineseOutput: settings.chineseOutput };
+  return {
+    signal,
+    language,
+    chineseOutput: settings.chineseOutput,
+    chineseEnabled: isChineseLanguage(settings.transcriptionLanguage) ||
+      settings.preferredLanguages.some(isChineseLanguage),
+  };
 }
 
 function fixedLanguage(policy: AutoLanguagePolicy): string | undefined {

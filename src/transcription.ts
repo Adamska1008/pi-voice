@@ -5,7 +5,7 @@ import type {
   Stream,
   TranscribeModel,
 } from "transcribe-cpp";
-import { convertChineseOutput, isChineseLanguage } from "./chinese.js";
+import { convertChineseOutput, shouldConvertChinese } from "./chinese.js";
 import { writeLog, type LogLevel } from "./log.js";
 import type { ChineseOutput } from "./settings.js";
 
@@ -13,6 +13,8 @@ export type TranscriptionOptions = {
   signal?: AbortSignal;
   language?: string;
   chineseOutput?: ChineseOutput;
+  /** Chinese is a preferred or chosen language: convert any Chinese text. */
+  chineseEnabled?: boolean;
 };
 
 export type DictationStream = {
@@ -34,18 +36,18 @@ function validateLanguage(
 
 /**
  * Shared final step for batch and streaming output: trim, then apply the
- * Chinese script preference when the detected (or configured) language is
- * Chinese. Keeping this in one place keeps the two paths from drifting.
+ * Chinese script preference (see shouldConvertChinese). Keeping this in one
+ * place keeps the two paths from drifting.
  */
 async function finishTranscript(
   text: string,
   detectedLanguage: string,
-  configuredLanguage: string | undefined,
-  chineseOutput: ChineseOutput,
+  options: TranscriptionOptions,
 ): Promise<string> {
   const trimmed = text.trim();
-  return isChineseLanguage(detectedLanguage || configuredLanguage || "")
-    ? convertChineseOutput(trimmed, chineseOutput)
+  const language = detectedLanguage || options.language || "";
+  return shouldConvertChinese(trimmed, { chineseEnabled: options.chineseEnabled ?? false, language })
+    ? convertChineseOutput(trimmed, options.chineseOutput ?? "simplified")
     : trimmed;
 }
 
@@ -55,8 +57,7 @@ class TranscribeCppDictationStream implements DictationStream {
   constructor(
     private readonly session: Session,
     private readonly stream: Stream,
-    private readonly language: string | undefined,
-    private readonly chineseOutput: ChineseOutput,
+    private readonly options: TranscriptionOptions,
   ) {}
 
   async feed(chunk: Float32Array): Promise<void> {
@@ -81,7 +82,7 @@ class TranscribeCppDictationStream implements DictationStream {
       this.close();
     }
 
-    return finishTranscript(text, detectedLanguage, this.language, this.chineseOutput);
+    return finishTranscript(text, detectedLanguage, this.options);
   }
 
   reset(): void {
@@ -167,8 +168,7 @@ export class TranscribeCppBackend {
       return new TranscribeCppDictationStream(
         session,
         stream,
-        options.language,
-        options.chineseOutput ?? "simplified",
+        options,
       );
     } catch (error) {
       session.dispose();
@@ -193,8 +193,7 @@ export class TranscribeCppBackend {
     return finishTranscript(
       result.text,
       result.language,
-      options.language,
-      options.chineseOutput ?? "simplified",
+      options,
     );
   }
 
