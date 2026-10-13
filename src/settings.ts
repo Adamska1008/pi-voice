@@ -27,7 +27,7 @@ function defaultChineseOutput(): ChineseOutput {
   return "simplified";
 }
 
-/** "auto" uses native detection, a fixed preference, or an external detector. */
+/** "auto" uses native detection or the external detector; otherwise a language code. */
 export type TranscriptionLanguage = string;
 
 export type TranscribeSettings = {

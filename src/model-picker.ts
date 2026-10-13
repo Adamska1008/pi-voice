@@ -1003,17 +1003,17 @@ export function createTranscriptionLanguagePicker(
     );
   const policy = autoLanguagePolicy(model, preferredLanguages);
   const autoAvailable = policy.kind !== "unsupported";
-  const name = (language: string) => transcriptionLanguageName(language, model.languages);
-  const skipped = undetectablePreferences(model, preferredLanguages);
-  const autoDescription = policy.kind === "fixed"
-    ? `Uses ${name(policy.language)}.`
-    : policy.kind === "detect"
-      ? `Detects ${policy.languages.map(name).join(", ")}.${skipped.length ? ` Can't detect ${skipped.map(name).join(", ")}.` : ""}`
-      : "Detects the spoken language.";
+  const auto: SingleSelectChoice<TranscriptionLanguage> = policy.kind === "detect"
+    ? {
+      value: "auto",
+      label: "Auto detect",
+      description: `Picks between ${new Intl.ListFormat("en", { type: "conjunction" }).format(
+        policy.languages.map((language) => transcriptionLanguageName(language, model.languages)),
+      )}, your preferred languages.`,
+    }
+    : { value: "auto", label: "Auto detect" };
   const choices: SingleSelectChoice<TranscriptionLanguage>[] = [
-    ...(autoAvailable
-      ? [{ value: "auto", label: "Auto detect", description: autoDescription }]
-      : []),
+    ...(autoAvailable ? [auto] : []),
     ...languages,
   ];
   return new SingleSelectPicker(
@@ -1024,11 +1024,9 @@ export function createTranscriptionLanguagePicker(
     current,
     {
       title: "Choose transcription language",
-      subtitle: policy.kind === "unsupported" && policy.reason
-        ? `Auto unavailable: ${policy.reason} Change your preferred languages to use it.`
-        : autoAvailable
-          ? "Language expected in recordings, or automatic detection."
-          : "Language expected in recordings.",
+      subtitle: autoAvailable
+        ? "Language expected in recordings, or automatic detection."
+        : "Language expected in recordings.",
       searchable: true,
       maximumVisible: MAX_VISIBLE_LANGUAGES,
       cancelLabel: "back",

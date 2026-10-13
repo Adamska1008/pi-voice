@@ -25,8 +25,8 @@ export type CatalogModel = {
 
 export const CATALOG_MODELS: readonly CatalogModel[] = catalog.models;
 
-/** The shared language detector for multilingual models without native
- * detection. Deliberately not in CATALOG_MODELS, so no picker offers it. */
+/** Language detection model for transcription models without native
+ * language detection. */
 export const LANGUAGE_DETECTION_MODEL: CatalogModel = catalog.languageDetector;
 
 const languageNames = new Intl.DisplayNames(["en"], { type: "language" });

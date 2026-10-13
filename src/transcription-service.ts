@@ -492,7 +492,7 @@ export class TranscriptionService {
       signal.throwIfAborted();
     } else if (policy.kind === "unsupported") {
       // Settings normalization drops Auto first; this guards stale settings.
-      throw new Error(`Auto is unavailable for this model${policy.reason ? `: ${policy.reason}` : "."} Choose a transcription language in /voice-settings.`);
+      throw new Error("Auto is unavailable for this model. Choose a transcription language in /voice-settings.");
     }
     const text = await backend.transcribe(pcm, transcriptionOptions(settings, language, signal));
     return warning ? { text, warning } : { text };

@@ -4,20 +4,18 @@ import { LANGUAGE_DETECTION_MODEL, displayLanguage, getCatalogModel, languageIde
 import { describeError, log } from "./log.js";
 import type { TranscribeSettings } from "./settings.js";
 
-/** Only catalog facts are needed; this module never loads a native backend. */
 type LanguageModel = {
   readonly languages: readonly string[];
   readonly capabilities: { readonly languageDetection: boolean };
 };
 
 export type DetectPolicy = { kind: "detect"; languages: string[]; allowed: string[] };
-/** What Auto does for a model. `unsupported` is the only kind that hides Auto. */
+/** What a take does about language. Auto is never `fixed`; `unsupported` hides it. */
 export type AutoLanguagePolicy =
   | { kind: "native" }
   | { kind: "fixed"; language: string }
   | DetectPolicy
-  /** `reason` is absent when there is nothing to explain (a one-language model). */
-  | { kind: "unsupported"; reason?: string };
+  | { kind: "unsupported" };
 
 const detectorCodes = new Map<string, string>(
   LANGUAGE_DETECTION_MODEL.languages.map((code) => [languageIdentity(code), code]),
@@ -53,9 +51,8 @@ export function undetectablePreferences(model: LanguageModel, preferred: readonl
 }
 
 /**
- * Resolve Auto. Detection runs among the supported preferred languages the
- * detector knows; undetectable ones are skipped (see undetectablePreferences).
- * With fewer than two detectable languages, Auto is the first preference.
+ * Resolve Auto. Without native detection, Auto exists only when at least two
+ * preferred languages are supported and every one of them is detectable.
  */
 export function autoLanguagePolicy(
   model: LanguageModel,
@@ -63,15 +60,11 @@ export function autoLanguagePolicy(
 ): AutoLanguagePolicy {
   // Native detection retains its existing unrestricted semantics.
   if (model.capabilities.languageDetection) return { kind: "native" };
-  if (!requiresLanguageDetector(model)) return { kind: "unsupported" };
 
   const languages = compatiblePreferences(model, preferred);
-  if (languages.length === 0) {
-    return { kind: "unsupported", reason: "None of your preferred languages are supported by this model." };
-  }
-  const detectable = languages.filter((language) => detectorLanguageCode(language) !== undefined);
-  if (detectable.length < 2) return { kind: "fixed", language: languages[0]! };
-  return { kind: "detect", languages: detectable, allowed: detectable.map((language) => detectorLanguageCode(language)!) };
+  const allowed = languages.map(detectorLanguageCode);
+  if (languages.length < 2 || allowed.includes(undefined)) return { kind: "unsupported" };
+  return { kind: "detect", languages, allowed: allowed as string[] };
 }
 
 /** The policy a take runs with: an explicit language is fixed. */

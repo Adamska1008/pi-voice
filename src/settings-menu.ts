@@ -3,8 +3,7 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
-import { autoLanguagePolicy, undetectablePreferences } from "./language-detection-policy.js";
-import { findCachedCatalogModel } from "./models.js";
+import { downloadCatalogModel, pendingDownloads } from "./models.js";
 import { microphonePermission, type Permission } from "./audio.js";
 import { displayLanguage, getCatalogModel, LANGUAGE_DETECTION_MODEL } from "./catalog.js";
 import { chineseOutputSummary, isChineseLanguage } from "./chinese.js";
@@ -85,22 +84,29 @@ async function saveUpdatedSettings(
   }
 }
 
+let detectorDownload: Promise<void> | undefined;
+
+/** Fetch the language detector in the background; takes before it lands warn. */
+function downloadLanguageDetector(ctx: ExtensionContext): void {
+  if (detectorDownload) return;
+  ctx.ui.notify("Downloading the language detector…", "info");
+  detectorDownload = downloadCatalogModel(LANGUAGE_DETECTION_MODEL)
+    .then(
+      () => ctx.ui.notify("Language detector downloaded", "info"),
+      (error: unknown) => ctx.ui.notify(
+        `Could not download the language detector: ${error instanceof Error ? error.message : String(error)}`,
+        "error",
+      ),
+    )
+    .catch(() => undefined) // The session may be gone by the time it settles.
+    .finally(() => { detectorDownload = undefined; });
+}
+
 function settingsHomeChoices(
   configured: TranscribeSettings,
   permission: Permission,
 ): SettingsHomeChoice[] {
   const model = getCatalogModel(configured.model.id)!;
-  const policy = autoLanguagePolicy(model, configured.preferredLanguages);
-  const auto = configured.transcriptionLanguage === "auto";
-  const skipped = undetectablePreferences(model, configured.preferredLanguages);
-  const autoIssue = policy.kind === "unsupported" && policy.reason
-    ? `Auto unavailable: ${policy.reason}`
-    : auto && policy.kind === "detect" && !findCachedCatalogModel(LANGUAGE_DETECTION_MODEL)
-      ? "Auto needs the language detector, which is missing. Choose the model again to download it."
-      : undefined;
-  const autoNote = !auto || !skipped.length ? undefined
-    : policy.kind === "fixed" ? `Auto always uses ${displayLanguage(policy.language)}.`
-    : `Auto can't detect ${skipped.map(displayLanguage).join(", ")}.`;
   const choices: SettingsHomeChoice[] = [
     {
       value: "preferred-languages",
@@ -118,8 +124,7 @@ function settingsHomeChoices(
       value: "transcription-language",
       label: "Transcription language",
       summary: transcriptionLanguageSummary(configured.transcriptionLanguage, model),
-      description: autoIssue ?? autoNote ?? "Language expected in recordings, or automatic detection when supported",
-      alert: Boolean(autoIssue),
+      description: "Language expected in recordings, or automatic detection when supported",
     },
   ];
 
@@ -355,13 +360,13 @@ export async function showSettingsMenu(
 
     if (action === "transcription-language") {
       const transcriptionLanguage = await chooseTranscriptionLanguage(ctx, configured);
-      if (
-        !transcriptionLanguage ||
-        transcriptionLanguage === configured.transcriptionLanguage
-      ) {
-        continue;
-      }
+      if (!transcriptionLanguage) continue;
       const model = getCatalogModel(configured.model.id)!;
+      // Auto needs the detector on disk; choosing Auto again retries a failure.
+      if (transcriptionLanguage === "auto" && pendingDownloads(model, true).length) {
+        downloadLanguageDetector(ctx);
+      }
+      if (transcriptionLanguage === configured.transcriptionLanguage) continue;
       const summary = transcriptionLanguageSummary(transcriptionLanguage, model);
       await saveUpdatedSettings(
         ctx,
