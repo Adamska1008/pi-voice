@@ -20,9 +20,11 @@ export type SpeechFilter = {
   finish(): Promise<Float32Array>;
   discard(): void;
 };
+/** Kept audio, with its Silero frame probabilities when it has them. */
+export type OnSpeech = (chunk: Float32Array, probs?: readonly number[]) => void;
 export type CreateSpeechFilter = (
   settings: TranscribeSettings,
-  onSpeech: (chunk: Float32Array) => void,
+  onSpeech: OnSpeech,
 ) => SpeechFilter | undefined;
 /** Opens a microphone and starts recording; resolves once audio is flowing. */
 export type OpenCapture = (microphone: MicrophoneSetting, sinks: CaptureSinks) => Promise<Capture>;
@@ -118,10 +120,10 @@ export class DictationController {
     }
     const take: Take = {
       settings, reservation, abort: new AbortController(),
-      chunker: new PcmChunker((chunk) => reservation.feed(chunk)),
+      chunker: new PcmChunker((chunk, probs) => reservation.feed(chunk, probs)),
     };
     try {
-      take.filter = this.options.createSpeechFilter?.(settings, (chunk) => this.feedStream(take, chunk));
+      take.filter = this.options.createSpeechFilter?.(settings, (chunk, probs) => this.feedStream(take, chunk, probs));
     } catch (cause) {
       log.warn(`voice activity detection unavailable: ${describeError(cause)}`);
     }
@@ -241,9 +243,9 @@ export class DictationController {
     else this.feedStream(take, chunk);
   }
 
-  private feedStream(take: Take, chunk: Float32Array): void {
+  private feedStream(take: Take, chunk: Float32Array, probs?: readonly number[]): void {
     // A failed stream feed falls back to submitting the whole recording.
-    try { take.chunker.push(chunk); } catch { /* The recording keeps the audio. */ }
+    try { take.chunker.push(chunk, probs); } catch { /* The recording keeps the audio. */ }
   }
 
   /** Drops a take that will never be submitted. */

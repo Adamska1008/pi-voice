@@ -308,8 +308,8 @@ export class TryItPane implements Component {
 }
 
 export async function tryVoice(ctx: ExtensionContext, settings: TranscribeSettings): Promise<TryItResult | undefined> {
-  const service = new TranscriptionService();
   const voiceActivity = new VoiceActivityDetection();
+  const service = new TranscriptionService(undefined, (pcm, signal) => voiceActivity.scoreClip(pcm, signal));
   let pane: TryItPane | undefined;
   try {
     return await ctx.ui.custom<TryItResult>((tui, theme, keybindings, done) =>

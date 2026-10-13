@@ -62,7 +62,7 @@ test("Auto on a model without native detection transcribes in the detected langu
   reservation.feed(SPEECH);
 
   assert.deepEqual(await reservation.submit(SPEECH), { text: "transcript" });
-  assert.equal(h.streams.length, 0, "detection needs the whole clip, so no stream opens");
+  assert.equal(h.streams.length, 0, "a chunked model never opens a native stream");
   assert.deepEqual(h.allowed, [["en", "de"]]);
   assert.equal(h.asrCalls[0]!.language, "de");
 });

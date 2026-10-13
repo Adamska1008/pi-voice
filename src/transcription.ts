@@ -18,8 +18,10 @@ export type TranscriptionOptions = {
 };
 
 export type DictationStream = {
-  feed(chunk: Float32Array): Promise<void>;
-  finalize(): Promise<string>;
+  /** `probs` are the chunk's Silero frame probabilities, when the take has them. */
+  feed(chunk: Float32Array, probs?: readonly number[]): Promise<void>;
+  /** `audio` is the whole take, for a stream that checks it saw all of it. */
+  finalize(audio?: Float32Array): Promise<string>;
   reset(): void;
 };
 
