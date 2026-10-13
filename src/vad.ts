@@ -6,16 +6,13 @@ import type { SpeechFilter } from "./dictation-controller.js";
 import { describeError, log } from "./log.js";
 import type { TranscribeSettings } from "./settings.js";
 
-// After Handy (cjpais/handy, src-tauri/src/audio_toolkit/vad): Silero scores
-// each 32 ms chunk, and a smoothing gate keeps speech plus a pre-roll before
-// it and a hangover tail after it.
+// Constants come from Handy (cjpais/handy, src-tauri/src/audio_toolkit/vad).
+// It's SmoothedVad idea to improve basic VAD performance
 const THRESHOLD = 0.3;
 const PREFILL_MS = 450;
 const ONSET_MS = 60;
 const OFFLINE_HANGOVER_MS = 450;
-/** Streaming models need more trailing context. */
 const STREAMING_HANGOVER_MS = 1650;
-/** Bundled; see models/README.md. */
 const MODEL_PATH = fileURLToPath(new URL("../models/silero-vad-v6.2-F32.gguf", import.meta.url));
 
 function framesFor(durationMs: number): number {
@@ -35,11 +32,7 @@ function concat(pieces: readonly Float32Array[]): Float32Array {
 
 type BufferedFrame = { samples: Float32Array; emitted: boolean };
 
-/**
- * Handy's SmoothedVad, except a re-onset never repeats frames already kept.
- * Speech starts after `onsetFrames` consecutive voiced frames, releasing up to
- * `prefillFrames` of pre-roll, and ends `hangoverFrames` after the last one.
- */
+// Handy's SmoothedVad 
 export class SpeechGate {
   private readonly buffer: BufferedFrame[] = [];
   private hangover = 0;
@@ -88,7 +81,6 @@ export class SpeechGate {
     return out;
   }
 
-  /** Unlike Handy, keeps a word whose onset the stop cut short. */
   finish(): Float32Array[] {
     return this.onset > 0 ? this.takeWithheld() : [];
   }

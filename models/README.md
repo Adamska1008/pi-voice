@@ -2,8 +2,6 @@
 
 `silero-vad-v6.2-F32.gguf` is [Silero VAD](https://github.com/snakers4/silero-vad) 6.2 converted to GGUF for transcribe.cpp, from [handy-computer/silero-vad-v6.2-gguf](https://huggingface.co/handy-computer/silero-vad-v6.2-gguf) at revision `97bbd75179f535e4708bccdf61e9278b8b60dfc7` (SHA-256 `0d871a800c420fdd5d1b17a3aea4296d1c39608f0ff4a9295eb76457eb1c88e6`).
 
-It ships with Pi Voice because its smoothing in `src/vad.ts` is tuned for this exact model.
-
 MIT License
 
 Copyright (c) 2020-present Silero Team
