@@ -17,6 +17,8 @@
     "index.ts",
     "catalog/catalog.json",
     "catalog/recommendations.json",
+    "models/silero-vad-v6.2-F32.gguf",
+    "models/README.md",
     "README.md",
     "LICENSE"
   ],
