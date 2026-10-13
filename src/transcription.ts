@@ -1,5 +1,6 @@
 import type {
   Capabilities,
+  LangIdResult,
   Session,
   Stream,
   TranscribeModel,
@@ -110,7 +111,10 @@ export function routeTranscribeLog(setLogHandler: typeof import("transcribe-cpp"
   });
 }
 
-/** A reusable loaded transcribe.cpp model. Calls must be scheduled sequentially. */
+/**
+ * A reusable loaded transcribe.cpp model: an ASR model, or the language
+ * detector. Calls must be scheduled sequentially.
+ */
 export class TranscribeCppBackend {
   private model: TranscribeModel | undefined;
   private loading: Promise<TranscribeModel> | undefined;
@@ -192,6 +196,21 @@ export class TranscribeCppBackend {
       options.language,
       options.chineseOutput ?? "simplified",
     );
+  }
+
+  /** Rank `allowed` detector labels for one clip (a "langid" model only). */
+  async identifyLanguage(
+    pcm: Float32Array,
+    allowed: readonly string[],
+    signal?: AbortSignal,
+  ): Promise<LangIdResult> {
+    await this.prepare();
+    const session = this.model!.createLangIdSession();
+    try {
+      return await session.run(pcm, { allowed, signal });
+    } finally {
+      session.dispose();
+    }
   }
 
   async dispose(): Promise<void> {

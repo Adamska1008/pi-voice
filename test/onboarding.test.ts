@@ -9,7 +9,7 @@ import { Deferred } from "../src/deferred.js";
 import { CatalogModelPicker, LanguagePicker } from "../src/model-picker.js";
 import { changeOnboardingModel, runModelSelection, runOnboarding } from "../src/onboarding.js";
 import { RecommendedModelPicker } from "../src/recommendation-picker.js";
-import { CATALOG_MODELS } from "../src/catalog.js";
+import { CATALOG_MODELS, LANGUAGE_DETECTION_MODEL } from "../src/catalog.js";
 import { recommendModels } from "../src/recommendations.js";
 import { readSettings, settingsForModel, writeSettings } from "../src/settings.js";
 import { cacheCatalogModel, isolatedModelCache } from "./model-cache-helper.js";
@@ -78,6 +78,7 @@ for (const entry of ["recommended", "other-models", "single-pick"] as const) {
   test(`Try it changes languages from ${entry}, recomputes picks, and saves them with the model`, async (t) => {
     isolatedSettings(t);
     const cache = isolatedModelCache(t);
+    cacheCatalogModel(cache, LANGUAGE_DETECTION_MODEL);
     const current = initialSettings(entry === "single-pick" ? ["en", "bs"] : ["en"]);
     await writeSettings(current);
     const picks = recommendModels(CATALOG_MODELS, ["en", "zh"]);
@@ -127,6 +128,7 @@ for (const entry of ["recommended", "other-models", "single-pick"] as const) {
 test("a root catalog stays root when another cached model appears while it is open", async (t) => {
   isolatedSettings(t);
   const cache = isolatedModelCache(t);
+  cacheCatalogModel(cache, LANGUAGE_DETECTION_MODEL);
   const current = CATALOG_MODELS.find((model) => model.id === "parakeet-unified-en-0.6b")!;
   const second = CATALOG_MODELS.find((model) => model.id !== current.id)!;
   cacheCatalogModel(cache, current);
@@ -209,6 +211,7 @@ test("back after confirming new languages leaves settings unchanged until a mode
 test("exiting first-run languages after a committed selection preserves saved settings", async (t) => {
   isolatedSettings(t);
   const cache = isolatedModelCache(t);
+  cacheCatalogModel(cache, LANGUAGE_DETECTION_MODEL);
   for (const pick of recommendModels(CATALOG_MODELS, ["en"])) {
     cacheCatalogModel(cache, pick.model);
   }

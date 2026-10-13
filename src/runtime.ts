@@ -292,6 +292,7 @@ export function createPiVoiceRuntime(
     try {
       const result = await active.dictation.stop();
       if (shuttingDown) return;
+      if (result?.warning) ctx.ui.notify(result.warning, "warning");
       if (!result) {
         await reportDictationError(ctx, active.dictation);
       } else if (result.text) {

@@ -34,6 +34,8 @@ export type DictationResult = {
   interruption?: Error;
   /** Audio lost inside the recording because it wasn't read in time. */
   droppedFrames?: number;
+  /** Language detection fallback, never part of the text. */
+  warning?: string;
 };
 export type DictationState =
   | { phase: "idle" | "ready" | "starting" | "listening" | "transcribing" | "cancelling" | "disposed" }
@@ -281,13 +283,14 @@ export class DictationController {
       if (this.take !== take || take.abort.signal.aborted) return undefined;
       take.chunker.flush();
       let text: string;
+      let warning: string | undefined;
       if (take.filter && pcm.length === 0) {
         take.reservation.cancel(); // No speech, nothing to transcribe.
         text = "";
       } else {
         stage = "transcription";
         logStep("transcribing", `${(pcm.length / CAPTURE_SAMPLE_RATE).toFixed(1)} s of audio`);
-        text = await take.reservation.submit(pcm, take.abort.signal);
+        ({ text, warning } = await take.reservation.submit(pcm, take.abort.signal));
       }
       if (this.disposed || this.take !== take || take.abort.signal.aborted) return undefined;
       const result = {
@@ -296,6 +299,7 @@ export class DictationController {
         transcribeSeconds: Math.max(0, (this.now() - stoppedAt) / 1000),
         ...(interruption ? { interruption } : {}),
         ...(captured.droppedFrames ? { droppedFrames: captured.droppedFrames } : {}),
+        ...(warning ? { warning } : {}),
       };
       this.take = undefined;
       log.info(text

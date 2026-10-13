@@ -1,4 +1,12 @@
+import { LANGUAGE_DETECTION_MODEL, displayLanguage, getCatalogModel } from "./catalog.js";
 import { Deferred } from "./deferred.js";
+import {
+  detectLanguage,
+  missingDetectorWarning,
+  settingsLanguagePolicy,
+  undetectablePreferences,
+  type AutoLanguagePolicy,
+} from "./language-detection-policy.js";
 import type { TranscribeSettings } from "./settings.js";
 import type {
   DictationStream,
@@ -6,11 +14,15 @@ import type {
   TranscriptionOptions,
 } from "./transcription.js";
 
+/** A transcript, plus any language identification fallback or limitation. */
+export type Transcript = { text: string; warning?: string };
+
 type TranscriptionJob = {
   settings: TranscribeSettings;
+  policy: AutoLanguagePolicy;
   pcm: Float32Array;
   signal?: AbortSignal;
-  resolve: (text: string) => void;
+  resolve: (transcript: Transcript) => void;
   reject: (error: unknown) => void;
   started: boolean;
   settled: boolean;
@@ -19,6 +31,7 @@ type TranscriptionJob = {
 
 type ReservationState = {
   settings: TranscribeSettings;
+  policy: AutoLanguagePolicy;
   accepting: boolean;
   submitted: boolean;
   cancelled: boolean;
@@ -27,7 +40,7 @@ type ReservationState = {
   ready: Deferred;
   /** Resolves when recording ends, whether by submit or cancel. */
   submission: Deferred;
-  result: Deferred<string>;
+  result: Deferred<Transcript>;
   fullPcm?: Float32Array;
   signal?: AbortSignal;
   removeAbortListener?: () => void;
@@ -41,7 +54,7 @@ type ReservationState = {
 export type DictationReservation = {
   readonly ready: Promise<void>;
   feed(chunk: Float32Array): void;
-  submit(pcm: Float32Array, signal?: AbortSignal): Promise<string>;
+  submit(pcm: Float32Array, signal?: AbortSignal): Promise<Transcript>;
   cancel(): void;
 };
 
@@ -52,6 +65,7 @@ type ReusableBackend = Pick<
   startStream?: (
     options?: TranscriptionOptions,
   ) => Promise<DictationStream | undefined>;
+  identifyLanguage?: TranscribeCppBackend["identifyLanguage"];
 };
 
 type BackendFactory = (
@@ -68,16 +82,20 @@ function cancellationError(state: ReservationState): Error {
 
 function transcriptionOptions(
   settings: TranscribeSettings,
+  language: string | undefined,
   signal?: AbortSignal,
 ): TranscriptionOptions {
-  return {
-    signal,
-    language:
-      settings.transcriptionLanguage === "auto"
-        ? undefined
-        : settings.transcriptionLanguage,
-    chineseOutput: settings.chineseOutput,
-  };
+  return { signal, language, chineseOutput: settings.chineseOutput };
+}
+
+function fixedLanguage(policy: AutoLanguagePolicy): string | undefined {
+  return policy.kind === "fixed" ? policy.language : undefined;
+}
+
+async function cachedDetectorPath(): Promise<string | undefined> {
+  // Keeps Hugging Face modules off the path of every other take.
+  const { findCachedCatalogModel } = await import("./models.js");
+  return findCachedCatalogModel(LANGUAGE_DETECTION_MODEL)?.path;
 }
 
 /** Owns the loaded model and schedules dictation ahead of queued file jobs. */
@@ -91,6 +109,10 @@ export class TranscriptionService {
   private loop: Promise<void> | undefined;
   private shuttingDown = false;
   private readonly shutdownController = new AbortController();
+  /** The language detector, loaded on demand like the transcription model. */
+  private detector: ReusableBackend | undefined;
+  /** A missing detector warns on the first take only, not every take. */
+  private missingDetectorWarned = false;
 
   constructor(
     private readonly createBackend: BackendFactory = async (modelPath) => {
@@ -103,17 +125,20 @@ export class TranscriptionService {
     if (this.shuttingDown) throw new Error("Pi Voice is shutting down");
     if (this.reservation) throw new Error("A dictation reservation is already active");
 
+    const policy = settingsLanguagePolicy(settings);
     const state: ReservationState = {
       settings,
+      policy,
       accepting: true,
       submitted: false,
       cancelled: false,
       started: false,
       ready: new Deferred(),
       submission: new Deferred(),
-      result: new Deferred<string>(),
+      result: new Deferred<Transcript>(),
       chunks: [],
-      streamUnavailable: false,
+      // Detection needs the finished clip before transcription can start.
+      streamUnavailable: policy.kind === "detect",
     };
     // Cancellation can happen before callers attach handlers to either promise.
     void state.ready.promise.catch(() => undefined);
@@ -173,13 +198,14 @@ export class TranscriptionService {
     settings: TranscribeSettings,
     pcm: Float32Array,
     signal?: AbortSignal,
-  ): Promise<string> {
+  ): Promise<Transcript> {
     if (this.shuttingDown) return Promise.reject(new Error("Pi Voice is shutting down"));
     if (signal?.aborted) return Promise.reject(abortError(signal));
 
-    const result = new Promise<string>((resolve, reject) => {
+    const result = new Promise<Transcript>((resolve, reject) => {
       const job: TranscriptionJob = {
         settings,
+        policy: settingsLanguagePolicy(settings),
         pcm,
         signal,
         resolve,
@@ -322,8 +348,7 @@ export class TranscriptionService {
         continue;
       }
 
-      // A dispose failure here would otherwise reject the loop promise unobserved.
-      await this.unloadModel().catch(() => undefined);
+      await this.unloadAll();
       return;
     }
   }
@@ -374,10 +399,10 @@ export class TranscriptionService {
     // If recording already ended while the model loaded (or while the stream
     // opened), avoid replaying the complete clip through a newly opened stream
     // and use the batch path.
-    if (!state.submitted && backend.startStream) {
+    if (!state.submitted && !state.streamUnavailable && backend.startStream) {
       try {
         const stream = await backend.startStream(
-          transcriptionOptions(state.settings),
+          transcriptionOptions(state.settings, fixedLanguage(state.policy)),
         );
         if (stream && state.submitted) {
           stream.reset();
@@ -402,6 +427,8 @@ export class TranscriptionService {
 
     state.ready.resolve();
     this.startDrain(state);
+    // Warm the detector while the user speaks; a failure resurfaces at detection.
+    if (state.policy.kind === "detect") await this.ensureDetector().catch(() => undefined);
     await state.submission.promise;
 
     if (!state.submitted) {
@@ -425,7 +452,7 @@ export class TranscriptionService {
         try {
           const text = await stream.finalize();
           state.signal?.throwIfAborted();
-          state.result.resolve(text);
+          state.result.resolve({ text });
           return;
         } catch (error) {
           if (state.signal?.aborted) throw abortError(state.signal);
@@ -441,13 +468,13 @@ export class TranscriptionService {
       // Stream setup/feed/finalize failure: reset precedes the batch fallback.
       this.resetStream(state);
       state.chunks.length = 0;
-      const text = await this.transcribeBatch(
+      state.result.resolve(await this.transcribeBatch(
         backend,
         state.settings,
+        state.policy,
         pcm,
         this.withShutdown(state.signal),
-      );
-      state.result.resolve(text);
+      ));
     } catch (error) {
       this.resetStream(state);
       state.result.reject(
@@ -466,11 +493,29 @@ export class TranscriptionService {
   private async transcribeBatch(
     backend: ReusableBackend,
     settings: TranscribeSettings,
+    policy: AutoLanguagePolicy,
     pcm: Float32Array,
     signal: AbortSignal,
-  ): Promise<string> {
+  ): Promise<Transcript> {
     signal.throwIfAborted();
-    return backend.transcribe(pcm, transcriptionOptions(settings, signal));
+    let language = fixedLanguage(policy);
+    let warning: string | undefined;
+    if (policy.kind === "detect" && !this.detector && !(await cachedDetectorPath())) {
+      language = policy.languages[0]!;
+      if (!this.missingDetectorWarned) warning = missingDetectorWarning(language);
+      this.missingDetectorWarned = true;
+    } else if (policy.kind === "detect") {
+      ({ language, warning } = await detectLanguage(policy, pcm, async (clip, allowed) =>
+        (await this.ensureDetector()).identifyLanguage!(clip, allowed, signal)));
+      signal.throwIfAborted();
+    } else if (policy.kind === "unsupported") {
+      // Settings normalization drops Auto first; this guards stale settings.
+      const skipped = undetectablePreferences(getCatalogModel(settings.model.id)!, settings.preferredLanguages);
+      const which = skipped.length ? ` (${skipped.map(displayLanguage).join(", ")})` : "";
+      throw new Error(`Auto detect doesn't work with your current languages${which}. Choose a language in /voice-settings.`);
+    }
+    const text = await backend.transcribe(pcm, transcriptionOptions(settings, language, signal));
+    return warning ? { text, warning } : { text };
   }
 
   private async runJob(job: TranscriptionJob): Promise<void> {
@@ -481,11 +526,22 @@ export class TranscriptionService {
     try {
       signal.throwIfAborted();
       const backend = await this.ensureModel(job.settings.model.path);
-      const text = await this.transcribeBatch(backend, job.settings, job.pcm, signal);
-      this.settleJob(job, () => job.resolve(text));
+      const transcript = await this.transcribeBatch(backend, job.settings, job.policy, job.pcm, signal);
+      this.settleJob(job, () => job.resolve(transcript));
     } catch (error) {
       this.settleJob(job, () => job.reject(error));
     }
+  }
+
+  /** Called only from the scheduler loop, so loads never race. */
+  private async ensureDetector(): Promise<ReusableBackend> {
+    if (!this.detector) {
+      const path = await cachedDetectorPath();
+      if (!path) throw new Error("the language detector isn't downloaded");
+      this.detector = await this.createBackend(path);
+    }
+    await this.detector.prepare();
+    return this.detector;
   }
 
   private async ensureModel(modelPath: string): Promise<ReusableBackend> {
@@ -519,6 +575,16 @@ export class TranscriptionService {
     await backend.dispose();
   }
 
+  /** Never rejects: a dispose failure would otherwise go unobserved. */
+  private async unloadAll(): Promise<void> {
+    const detector = this.detector;
+    this.detector = undefined;
+    await Promise.all([
+      this.unloadModel().catch(() => undefined),
+      detector?.dispose().catch(() => undefined),
+    ]);
+  }
+
   async shutdown(): Promise<void> {
     if (!this.shuttingDown) {
       this.shuttingDown = true;
@@ -543,6 +609,6 @@ export class TranscriptionService {
 
     await this.loop?.catch(() => undefined);
     this.reservationStates.clear();
-    await this.unloadModel().catch(() => undefined);
+    await this.unloadAll();
   }
 }

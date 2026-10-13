@@ -8,6 +8,8 @@ import type {
 } from "../src/transcription.js";
 import { deferred, nextTurn } from "./helpers.js";
 
+const text = async (transcript: Promise<{ text: string }>) => (await transcript).text;
+
 function settings(modelPath: string): TranscribeSettings {
   return {
     version: 1,
@@ -101,9 +103,9 @@ function createHarness(blockedIds: readonly number[] = []): {
 
 test("queued jobs sharing a model load it once", async () => {
   const harness = createHarness([1]);
-  const first = harness.service.transcribeFile(settings("model-a"), pcm(1));
+  const first = text(harness.service.transcribeFile(settings("model-a"), pcm(1)));
   await nextTurn();
-  const second = harness.service.transcribeFile(settings("model-a"), pcm(2));
+  const second = text(harness.service.transcribeFile(settings("model-a"), pcm(2)));
 
   harness.release(1);
   assert.deepEqual(await Promise.all([first, second]), ["1", "2"]);
@@ -120,14 +122,14 @@ test("queued jobs sharing a model load it once", async () => {
 
 test("dictation reservation runs before queued file jobs", async () => {
   const harness = createHarness([1]);
-  const activeFile = harness.service.transcribeFile(settings("model-a"), pcm(1));
+  const activeFile = text(harness.service.transcribeFile(settings("model-a"), pcm(1)));
   await nextTurn();
-  const queuedFile = harness.service.transcribeFile(settings("model-a"), pcm(2));
+  const queuedFile = text(harness.service.transcribeFile(settings("model-a"), pcm(2)));
   const reservation = harness.service.reserveDictation(settings("model-a"));
 
   harness.release(1);
   await reservation.ready;
-  const dictation = reservation.submit(pcm(9));
+  const dictation = text(reservation.submit(pcm(9)));
   assert.deepEqual(
     await Promise.all([activeFile, dictation, queuedFile]),
     ["1", "9", "2"],
@@ -147,7 +149,7 @@ test("cancelling a dictation reservation releases file work", async () => {
   const harness = createHarness();
   const reservation = harness.service.reserveDictation(settings("model-a"));
   await reservation.ready;
-  const file = harness.service.transcribeFile(settings("model-a"), pcm(3));
+  const file = text(harness.service.transcribeFile(settings("model-a"), pcm(3)));
   await nextTurn();
 
   assert.equal(harness.events.includes("run:3"), false);
@@ -186,7 +188,7 @@ test("aborting a submission during model preparation releases its slot", async (
 
   const controller = new AbortController();
   const first = service.reserveDictation(settings("model-a"));
-  const result = first.submit(pcm(1), controller.signal);
+  const result = text(first.submit(pcm(1), controller.signal));
   controller.abort(new Error("cancelled while loading"));
   let second!: ReturnType<TranscriptionService["reserveDictation"]>;
   assert.doesNotThrow(() => {
@@ -201,12 +203,12 @@ test("aborting a submission during model preparation releases its slot", async (
 
 test("aborting an unstarted queued submission rejects immediately", async () => {
   const harness = createHarness([1]);
-  const activeFile = harness.service.transcribeFile(settings("model-a"), pcm(1));
+  const activeFile = text(harness.service.transcribeFile(settings("model-a"), pcm(1)));
   await nextTurn();
 
   const controller = new AbortController();
   const reservation = harness.service.reserveDictation(settings("model-a"));
-  const result = reservation.submit(pcm(9), controller.signal);
+  const result = text(reservation.submit(pcm(9), controller.signal));
   controller.abort(new Error("cancelled while queued"));
 
   let timeout: NodeJS.Timeout | undefined;
@@ -231,11 +233,11 @@ test("aborting an unstarted queued submission rejects immediately", async () => 
 
 test("a submitted reservation is queued when a replacement is admitted", async () => {
   const harness = createHarness([1]);
-  const activeFile = harness.service.transcribeFile(settings("model-a"), pcm(1));
+  const activeFile = text(harness.service.transcribeFile(settings("model-a"), pcm(1)));
   await nextTurn();
 
   const first = harness.service.reserveDictation(settings("model-a"));
-  const firstResult = first.submit(pcm(9));
+  const firstResult = text(first.submit(pcm(9)));
   let second!: ReturnType<TranscriptionService["reserveDictation"]>;
   assert.doesNotThrow(() => {
     second = harness.service.reserveDictation(settings("model-a"));
@@ -253,9 +255,9 @@ test("a submitted reservation is queued when a replacement is admitted", async (
 
 test("a different model is unloaded and loaded at the queue boundary", async () => {
   const harness = createHarness([4]);
-  const first = harness.service.transcribeFile(settings("model-a"), pcm(4));
+  const first = text(harness.service.transcribeFile(settings("model-a"), pcm(4)));
   await nextTurn();
-  const second = harness.service.transcribeFile(settings("model-b"), pcm(5));
+  const second = text(harness.service.transcribeFile(settings("model-b"), pcm(5)));
 
   harness.release(4);
   await Promise.all([first, second]);
@@ -302,8 +304,8 @@ test("a stream releases the model before the next batch run", async () => {
   const reservation = service.reserveDictation(settings("model-a"));
   await reservation.ready;
   reservation.feed(pcm(7));
-  const file = service.transcribeFile(settings("model-a"), pcm(3));
-  const dictation = reservation.submit(pcm(9));
+  const file = text(service.transcribeFile(settings("model-a"), pcm(3)));
+  const dictation = text(reservation.submit(pcm(9)));
 
   assert.equal(await dictation, "streamed");
   assert.equal(await file, "3");
@@ -350,7 +352,7 @@ for (const failurePoint of ["feed", "finalize"] as const) {
       reservation.feed(pcm(7));
       await nextTurn();
     }
-    const result = await reservation.submit(pcm(9));
+    const result = await text(reservation.submit(pcm(9)));
 
     assert.equal(result, "fallback:9");
     assert.ok(events.indexOf("stream:reset") < events.indexOf("batch:fallback"));
@@ -372,7 +374,7 @@ test("dictation submitted before model preparation uses the batch path", async (
   });
 
   const reservation = service.reserveDictation(settings("model-a"));
-  const result = reservation.submit(pcm(9));
+  const result = text(reservation.submit(pcm(9)));
   prepareGate.resolve();
 
   assert.equal(await result, "9");
@@ -413,7 +415,7 @@ test("cancelling with an in-flight feed discards queued chunks and releases file
   reservation.feed(pcm(1));
   reservation.feed(pcm(2));
   await nextTurn();
-  const file = service.transcribeFile(settings("model-a"), pcm(3));
+  const file = text(service.transcribeFile(settings("model-a"), pcm(3)));
   reservation.cancel();
 
   assert.equal(await file, "3");
@@ -453,7 +455,7 @@ test("a submission that lands while the stream opens uses the batch path", async
   await nextTurn();
   assert.deepEqual(events, ["stream:start"]);
   reservation.feed(pcm(7));
-  const result = reservation.submit(pcm(9));
+  const result = text(reservation.submit(pcm(9)));
   streamGate.resolve();
 
   assert.equal(await result, "9");
@@ -484,7 +486,7 @@ test("an empty recording never reaches stream finalize", async () => {
 
   const reservation = service.reserveDictation(settings("model-a"));
   await reservation.ready;
-  await assert.rejects(reservation.submit(new Float32Array(0)), /No audio samples/);
+  await assert.rejects(text(reservation.submit(new Float32Array(0))), /No audio samples/);
   assert.deepEqual(events, ["stream:start", "stream:reset", "batch:0"]);
   await service.shutdown();
 });
