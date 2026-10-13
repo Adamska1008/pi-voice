@@ -44,7 +44,6 @@ type SettingsAction =
   | "transcription-language"
   | "chinese-output"
   | "microphone"
-  | "voice-activity"
   | "shortcut";
 
 type SettingsHomeChoice = SingleSelectChoice<SettingsAction> & {
@@ -138,12 +137,6 @@ function settingsHomeChoices(
             summary: microphoneSummary(configured.microphone),
             description: "Input device used for dictation",
           }),
-    },
-    {
-      value: "voice-activity",
-      label: "Voice activity detection",
-      summary: configured.voiceActivityDetection ? "On" : "Off",
-      description: "Transcribe only speech, skipping silence and background noise. Select to toggle",
     },
     {
       value: "shortcut",
@@ -393,17 +386,6 @@ export async function showSettingsMenu(
         configured,
         { ...configured, microphone },
         `Microphone saved as ${summary}`,
-      );
-      continue;
-    }
-
-    if (action === "voice-activity") {
-      const voiceActivityDetection = !configured.voiceActivityDetection;
-      await saveUpdatedSettings(
-        ctx,
-        configured,
-        { ...configured, voiceActivityDetection },
-        `Voice activity detection turned ${voiceActivityDetection ? "on" : "off"}`,
       );
       continue;
     }
