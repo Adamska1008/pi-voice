@@ -9,8 +9,9 @@ const TARGET_SECONDS = 30;
 /** Audio up to this many samples is decoded in one piece; longer audio is cut. */
 export const MAX_CHUNK_SAMPLES = 40 * RATE;
 const MIN_CHUNK = 5 * RATE;
-// Live, a cut is only final once the audio a little past it is scored.
-const LOOKAHEAD = RATE;
+// Live, a cut is only final once MIN_CHUNK past the window is scored: then no
+// cut it allows can leave a short rest, so live cuts match the offline plan.
+const LOOKAHEAD = MIN_CHUNK;
 
 // Silero's segmentation, as VadSession.run applies it.
 const THRESHOLD = 0.5;
@@ -103,8 +104,9 @@ export function cutCandidates(segments: readonly SpeechSegment[], samples: numbe
 
 /**
  * Greedy, left to right from `from`: each cut is the best-scoring pause
- * 5-40 s after the previous one, preferring long pauses near 30 s, or a hard
- * cut at 40 s when there is none. Audio of 40 s or less is never cut.
+ * 5-40 s after the previous one, preferring long pauses near 30 s and ones
+ * that leave at least 5 s after them. With no pause, it is a hard cut at 40 s,
+ * or halfway when that would leave under 5 s. Audio of 40 s or less is never cut.
  */
 export function planCuts(candidates: readonly CutCandidate[], samples: number, from = 0): number[] {
   const cuts: number[] = [];
@@ -113,20 +115,30 @@ export function planCuts(candidates: readonly CutCandidate[], samples: number, f
   let first = 0;
   while (samples - start > MAX_CHUNK_SAMPLES) {
     while (first < candidates.length && candidates[first]!.cut < start + MIN_CHUNK) first++;
+    // A pause that leaves under 5 s is only used when no other pause will do.
     let best: number | undefined;
     let bestScore = -Infinity;
+    let fallback: number | undefined;
+    let fallbackScore = -Infinity;
     for (let i = first; i < candidates.length && candidates[i]!.cut <= start + MAX_CHUNK_SAMPLES; i++) {
       const { cut, gapSeconds } = candidates[i]!;
       const position = (cut - start) / RATE;
       const score = Math.min(gapSeconds, 1) - (position > TARGET_SECONDS
         ? 0.1 * (position - TARGET_SECONDS)
         : 0.05 * (TARGET_SECONDS - position));
-      if (score > bestScore) {
+      if (samples - cut >= MIN_CHUNK && score > bestScore) {
         best = cut;
         bestScore = score;
       }
+      if (score > fallbackScore) {
+        fallback = cut;
+        fallbackScore = score;
+      }
     }
-    start = best ?? start + MAX_CHUNK_SAMPLES;
+    const hardCut = samples - start < MAX_CHUNK_SAMPLES + MIN_CHUNK
+      ? start + Math.floor((samples - start) / 2)
+      : start + MAX_CHUNK_SAMPLES;
+    start = best ?? fallback ?? hardCut;
     cuts.push(start);
   }
   return cuts;
@@ -179,8 +191,11 @@ export class ChunkedTranscriber {
     this.trackScores(pcm.length, probs);
     this.append(pcm);
     if (!this.scored || this.length - this.start <= MAX_CHUNK_SAMPLES + LOOKAHEAD) return;
+    const segments = speechSegments(this.probs, this.length);
+    // A pause still open at the end moves its midpoint as it grows: wait for speech.
+    if (segments.at(-1)?.end !== this.length) return;
     // One plan, committed while each cut's whole window plus the lookahead is scored.
-    for (const cut of planCuts(this.candidates(), this.length, this.start)) {
+    for (const cut of planCuts(cutCandidates(segments, this.length), this.length, this.start)) {
       if (this.length - this.start <= MAX_CHUNK_SAMPLES + LOOKAHEAD) break;
       this.commit(cut);
     }

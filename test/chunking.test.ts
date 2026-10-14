@@ -61,6 +61,16 @@ test("cuts prefer long pauses near 30 s", () => {
   assert.deepEqual(plan(60, [[2, 3]]), [40]);
 });
 
+test("cuts avoid leaving a short last chunk", () => {
+  // The pause at 38 s would leave 4 s, so the weaker one at 10 s wins.
+  assert.deepEqual(plan(42, [[9.8, 10.2], [37.5, 38.5]]), [10]);
+  // Without a pause, a short rest is split evenly instead of cut at 40 s.
+  assert.deepEqual(plan(41, []), [20.5]);
+  assert.deepEqual(plan(84, []), [40, 62]);
+  // A pause that leaves a short rest still beats cutting mid-speech.
+  assert.deepEqual(plan(40.5, [[38.8, 39.2]]), [39]);
+});
+
 test("joins put spaces only between spaced scripts", () => {
   assert.equal(joinTranscripts([" Hello there. ", "", "General Kenobi."]), "Hello there. General Kenobi.");
   assert.equal(joinTranscripts(["今天天气很好。", "我们去公园吧。"]), "今天天气很好。我们去公园吧。");
@@ -95,9 +105,31 @@ test("live chunks decode before the take ends, at the same cuts as one push", as
     transcriber.push(pcm.subarray(frame * FRAME, (frame + 1) * FRAME), [probs[frame]!]);
   }
   await transcriber.idle();
-  // A cut is made whenever more than 41 s is waiting: 3 of the 4 chunks before the end.
-  assert.equal(live.length, 3, "chunks are decoded while audio still arrives");
+  // A cut is made whenever more than 45 s is waiting: 2 of the 4 chunks before the end.
+  assert.equal(live.length, 2, "chunks are decoded while audio still arrives");
   await transcriber.finish();
+  assert.deepEqual(live, offline);
+});
+
+test("live cuts wait for a pause to end, so a long pause cuts as it does offline", async () => {
+  // At 45 s the pause so far is 34-45 s, a cut at 39.5 s; the whole pause's
+  // midpoint, 42 s, is out of reach, so the offline plan cuts at 40 s.
+  const probs = probsWithPauses(90, [[34, 50]]);
+  const pcm = new Float32Array(probs.length * FRAME);
+  const cuts = async (feed: (transcriber: ChunkedTranscriber) => void): Promise<number[]> => {
+    const sizes: number[] = [];
+    const transcriber = new ChunkedTranscriber(async (chunk) => { sizes.push(chunk.length); return ""; });
+    feed(transcriber);
+    await transcriber.finish();
+    return sizes;
+  };
+  const offline = await cuts((transcriber) => transcriber.push(pcm, probs));
+  const live = await cuts((transcriber) => {
+    for (let frame = 0; frame < probs.length; frame += 16) {
+      transcriber.push(pcm.subarray(frame * FRAME, (frame + 16) * FRAME), probs.slice(frame, frame + 16));
+    }
+  });
+  assert.deepEqual(offline, [s(40), s(40), pcm.length - s(80)]);
   assert.deepEqual(live, offline);
 });
 
@@ -105,8 +137,8 @@ test("audio without probabilities is decoded in one piece after the last cut", a
   const { pcm, probs } = longClip();
   const sizes: number[] = [];
   const transcriber = new ChunkedTranscriber(async (chunk) => { sizes.push(chunk.length); return "x"; });
-  transcriber.push(pcm.subarray(0, s(45) - (s(45) % FRAME)), probs.slice(0, Math.floor(s(45) / FRAME)));
-  transcriber.push(pcm.subarray(s(45) - (s(45) % FRAME)));
+  transcriber.push(pcm.subarray(0, s(50) - (s(50) % FRAME)), probs.slice(0, Math.floor(s(50) / FRAME)));
+  transcriber.push(pcm.subarray(s(50) - (s(50) % FRAME)));
   assert.equal(await transcriber.finish(), "x x");
   assert.equal(sizes[0]! + sizes[1]!, pcm.length);
   assert.ok(sizes[1]! > s(40), "the unscored rest is one piece");
