@@ -1,6 +1,7 @@
 import { CAPTURE_CHUNK_SAMPLES as FRAME, CAPTURE_SAMPLE_RATE as RATE } from "./audio-constants.js";
 import { getCatalogModel, type CatalogModel } from "./catalog.js";
 import { log } from "./log.js";
+import type { TranscribeSettings } from "./settings.js";
 import type { DictationStream } from "./transcription.js";
 
 // Long audio is decoded in chunks cut at pauses, except for models that handle
@@ -34,8 +35,9 @@ function handlesLongAudio(model: CatalogModel): boolean {
 }
 
 /** Models outside the catalog are chunked: nothing says they handle long audio. */
-export function chunksTranscription(modelId: string): boolean {
-  const model = getCatalogModel(modelId);
+export function chunksTranscription(settings: Pick<TranscribeSettings, "longformChunking"> & { model: { id: string } }): boolean {
+  if (!settings.longformChunking) return false;
+  const model = getCatalogModel(settings.model.id);
   if (!model) return true;
   return !handlesLongAudio(model) && !model.capabilities.streaming;
 }

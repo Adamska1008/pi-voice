@@ -32,11 +32,13 @@ function plan(seconds: number, pauses: Array<[number, number]>): number[] {
 }
 
 test("chunking skips models that handle long audio and streaming models", () => {
-  assert.equal(chunksTranscription("parakeet-tdt-0.6b-v3"), true);
-  assert.equal(chunksTranscription("parakeet-ultra"), false);
-  assert.equal(chunksTranscription("whisper-large-v3-turbo"), false);
-  assert.equal(chunksTranscription("parakeet-unified-en-0.6b"), false);
-  assert.equal(chunksTranscription("not-in-the-catalog"), true);
+  const chunks = (id: string, longformChunking = true) => chunksTranscription({ model: { id }, longformChunking });
+  assert.equal(chunks("parakeet-tdt-0.6b-v3"), true);
+  assert.equal(chunks("parakeet-ultra"), false);
+  assert.equal(chunks("whisper-large-v3-turbo"), false);
+  assert.equal(chunks("parakeet-unified-en-0.6b"), false);
+  assert.equal(chunks("not-in-the-catalog"), true);
+  assert.equal(chunks("parakeet-tdt-0.6b-v3", false), false, "the hidden setting turns it off");
 });
 
 test("segments follow Silero: short blips dropped, short dips bridged, edges padded", () => {

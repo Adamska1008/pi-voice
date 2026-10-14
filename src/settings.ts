@@ -40,6 +40,8 @@ export type TranscribeSettings = {
   microphone: MicrophoneSetting;
   /** Transcribe only the speech in a recording, not its silence and noise. */
   voiceActivityDetection: boolean;
+  /** Hidden, settings.json only: false decodes long audio in one piece, without voice activity cuts. */
+  longformChunking: boolean;
   model: {
     source: "catalog";
     id: string;
@@ -146,6 +148,7 @@ function validateSettings(value: unknown): TranscribeSettings | undefined {
     chineseOutput: validateChineseOutput(value.chineseOutput),
     microphone,
     voiceActivityDetection: value.voiceActivityDetection !== false,
+    longformChunking: value.longformChunking !== false,
     model: {
       source: "catalog",
       id: value.model.id,
@@ -213,6 +216,7 @@ type ModelSettingsOptions = {
   chineseOutput?: ChineseOutput;
   microphone?: MicrophoneSetting;
   voiceActivityDetection?: boolean;
+  longformChunking?: boolean;
 };
 
 export function settingsForModel(
@@ -238,6 +242,7 @@ export function settingsForModel(
     chineseOutput: options.chineseOutput ?? defaultChineseOutput(),
     microphone: { ...(options.microphone ?? DEFAULT_MICROPHONE) },
     voiceActivityDetection: options.voiceActivityDetection ?? true,
+    longformChunking: options.longformChunking ?? true,
     model: { source: "catalog", id: modelId, path: modelPath },
   };
 }

@@ -426,7 +426,7 @@ export class TranscriptionService {
       return;
     }
 
-    if (chunksTranscription(state.settings.model.id)) {
+    if (chunksTranscription(state.settings)) {
       // Only buffers until a chunk is due, so a take that already ended still uses it.
       const abort = new AbortController();
       const decoder = this.takeDecoder(backend, state.settings, state.policy, this.withShutdown(abort.signal));
@@ -540,7 +540,7 @@ export class TranscriptionService {
     signal.throwIfAborted();
     const decoder = this.takeDecoder(backend, settings, policy, signal);
     let text: string;
-    if (chunksTranscription(settings.model.id) && pcm.length > MAX_CHUNK_SAMPLES) {
+    if (chunksTranscription(settings) && pcm.length > MAX_CHUNK_SAMPLES) {
       const transcriber = new ChunkedTranscriber(decoder.decode);
       transcriber.push(pcm, await this.scoreLongClip(pcm, signal));
       text = await transcriber.finish();

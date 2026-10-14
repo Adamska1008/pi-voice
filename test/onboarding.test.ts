@@ -62,6 +62,7 @@ function initialSettings(languages = ["en"]) {
     shortcut: "ctrl+alt+z",
     microphone: { type: "device", name: "Test microphone", occurrence: 1 },
     chineseOutput: "traditional-taiwan",
+    longformChunking: false,
   });
 }
 
@@ -113,6 +114,7 @@ for (const entry of ["recommended", "other-models", "single-pick"] as const) {
     assert.equal(result.shortcut, current.shortcut);
     assert.deepEqual(result.microphone, current.microphone);
     assert.equal(result.chineseOutput, current.chineseOutput);
+    assert.equal(result.longformChunking, false, "the hidden setting survives a model change");
     assert.deepEqual((await readSettings()).settings, result);
 
     // A later visit uses the newly saved languages, not the first-run closure.

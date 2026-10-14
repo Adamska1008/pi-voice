@@ -351,6 +351,7 @@ export async function showSettingsMenu(
         currentModelId: configured.model.id,
         microphone: configured.microphone,
         voiceActivityDetection: configured.voiceActivityDetection,
+        longformChunking: configured.longformChunking,
         postActivation: "stay",
         onPreferredLanguagesChange: async (preferredLanguages) => {
           if (languagesEqual(preferredLanguages, configured.preferredLanguages)) return;

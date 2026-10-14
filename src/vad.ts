@@ -237,7 +237,7 @@ export class VoiceActivityDetection {
    * every frame is kept, but scored for the chunk cuts.
    */
   createFilter(settings: TranscribeSettings, onSpeech: OnSpeech): SpeechFilter | undefined {
-    const chunked = chunksTranscription(settings.model.id);
+    const chunked = chunksTranscription(settings);
     if ((!settings.voiceActivityDetection && !chunked) || this.disposed) return undefined;
     const streaming = getCatalogModel(settings.model.id)?.capabilities.streaming ?? false;
     return new VoiceActivityFilter({
