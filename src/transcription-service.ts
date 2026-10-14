@@ -503,7 +503,9 @@ export class TranscriptionService {
         }
       }
 
-      // Stream setup/feed/finalize failure: reset precedes the batch fallback.
+      // Stream setup/feed/finalize failure: reset precedes the batch fallback,
+      // and a live chunk still decoding must stop before the model is reused.
+      await state.chunked?.stream.idle();
       this.resetStream(state);
       state.chunks.length = 0;
       state.result.resolve(await this.transcribeBatch(

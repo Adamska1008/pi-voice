@@ -11,7 +11,7 @@ import {
 import { settingsForModel } from "../src/settings.js";
 import type { TranscriptionOptions } from "../src/transcription.js";
 import { TranscriptionService } from "../src/transcription-service.js";
-import { nextTurn } from "./helpers.js";
+import { deferred, nextTurn } from "./helpers.js";
 
 const RATE = 16_000;
 const FRAME = 512;
@@ -77,6 +77,9 @@ test("joins put spaces only between spaced scripts", () => {
   assert.equal(joinTranscripts(["東京に行きました", "とても楽しかった"]), "東京に行きました" + "とても楽しかった");
   assert.equal(joinTranscripts(["I said", "你好"]), "I said你好");
   assert.equal(joinTranscripts(["안녕하세요.", "반갑습니다."]), "안녕하세요. 반갑습니다.");
+  // CJK Extension B is a surrogate pair, still unspaced on either side.
+  assert.equal(joinTranscripts(["你好𠀀", "我们"]), "你好𠀀我们");
+  assert.equal(joinTranscripts(["你好", "𠀀我们"]), "你好𠀀我们");
   assert.equal(joinTranscripts([]), "");
 });
 
@@ -205,4 +208,43 @@ test("live dictation decodes chunks while recording, using the gate's probabilit
   }
   while (h.decoded.length < 2) await nextTurn();
   assert.deepEqual(await reservation.submit(pcm), { text: "part1 part2 part3 part4" });
+});
+
+test("a stream fallback waits for a live chunk still decoding before reusing the model", async (t) => {
+  const release = deferred();
+  let active = 0;
+  let maxActive = 0;
+  const decoded: number[] = [];
+  const service = new TranscriptionService(() => ({
+    async prepare() {},
+    async startStream() { throw new Error("chunked models never open a native stream"); },
+    async transcribe(pcm: Float32Array) {
+      active++;
+      maxActive = Math.max(maxActive, active);
+      decoded.push(pcm.length);
+      // Like a native decode, the first one runs on past its abort.
+      if (decoded.length === 1) await release.promise;
+      active--;
+      return `part${decoded.length}`;
+    },
+    async dispose() {},
+  }));
+  t.after(() => service.shutdown());
+  const { pcm, probs } = longClip();
+  const reservation = service.reserveDictation(canary);
+  await reservation.ready;
+  // 60 s with speech at the end: one live chunk starts decoding.
+  const fed = Math.floor(s(60) / FRAME) * FRAME;
+  reservation.feed(pcm.subarray(0, fed), probs.slice(0, fed / FRAME));
+  while (decoded.length < 1) await nextTurn();
+
+  // The submitted take differs from what was fed, so the batch path takes over.
+  const short = new Float32Array(s(10));
+  const result = reservation.submit(short);
+  for (let i = 0; i < 10; i++) await nextTurn();
+  assert.equal(decoded.length, 1, "the batch decode waits for the live chunk");
+  release.resolve();
+  assert.deepEqual(await result, { text: "part2" });
+  assert.equal(maxActive, 1);
+  assert.deepEqual(decoded.slice(1), [short.length]);
 });

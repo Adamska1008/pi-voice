@@ -150,13 +150,16 @@ const UNSPACED = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script
 /** Chunk texts in order: a space between two chunks unless either side is unspaced script. */
 export function joinTranscripts(texts: readonly string[]): string {
   let joined = "";
+  // Whole code points: astral Han (CJK Extension B+) is a surrogate pair.
+  let last: string | undefined;
   for (const raw of texts) {
     const text = raw.trim();
     if (!text) continue;
-    if (joined && !UNSPACED.test(joined.at(-1)!) && !UNSPACED.test(String.fromCodePoint(text.codePointAt(0)!))) {
+    if (last !== undefined && !UNSPACED.test(last) && !UNSPACED.test(String.fromCodePoint(text.codePointAt(0)!))) {
       joined += " ";
     }
     joined += text;
+    last = Array.from(text).at(-1);
   }
   return joined;
 }
