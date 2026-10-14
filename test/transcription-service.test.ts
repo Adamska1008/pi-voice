@@ -10,7 +10,8 @@ import { deferred, nextTurn } from "./helpers.js";
 
 const text = async (transcript: Promise<{ text: string }>) => (await transcript).text;
 
-function settings(modelPath: string): TranscribeSettings {
+// A streaming catalog model with native detection: takes use the backend stream, not chunking.
+function settings(modelPath: string, modelId = "nemotron-3.5-asr-streaming-0.6b"): TranscribeSettings {
   return {
     version: 1,
     backend: { type: "transcribe-cpp" },
@@ -20,7 +21,7 @@ function settings(modelPath: string): TranscribeSettings {
     chineseOutput: "simplified",
     microphone: { type: "system-default" },
     voiceActivityDetection: true,
-    model: { source: "catalog", id: modelPath, path: modelPath },
+    model: { source: "catalog", id: modelId, path: modelPath },
   };
 }
 

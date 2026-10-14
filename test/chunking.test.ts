@@ -31,13 +31,14 @@ function plan(seconds: number, pauses: Array<[number, number]>): number[] {
     .map((cut) => Math.round((cut / RATE) * 10) / 10);
 }
 
-test("chunking skips Whisper and streaming models", () => {
+test("chunking skips models that handle long audio and streaming models", () => {
   assert.equal(chunksTranscription("canary-1b-v2"), true);
   assert.equal(chunksTranscription("parakeet-tdt-0.6b-v3"), true);
   assert.equal(chunksTranscription("whisper-large-v3-turbo"), false);
   assert.equal(chunksTranscription("Breeze-ASR-25"), false);
   assert.equal(chunksTranscription("parakeet-unified-en-0.6b"), false);
-  assert.equal(chunksTranscription("not-in-the-catalog"), false);
+  assert.equal(chunksTranscription("parakeet-ultra"), false);
+  assert.equal(chunksTranscription("not-in-the-catalog"), true);
 });
 
 test("segments follow Silero: short blips dropped, short dips bridged, edges padded", () => {

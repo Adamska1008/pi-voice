@@ -1,10 +1,10 @@
 import { CAPTURE_CHUNK_SAMPLES as FRAME, CAPTURE_SAMPLE_RATE as RATE } from "./audio-constants.js";
-import { getCatalogModel } from "./catalog.js";
+import { getCatalogModel, type CatalogModel } from "./catalog.js";
 import { log } from "./log.js";
 import type { DictationStream } from "./transcription.js";
 
-// Long audio is decoded in chunks cut at pauses. Whisper windows audio itself
-// and streaming models never see a whole clip, so neither is chunked.
+// Long audio is decoded in chunks cut at pauses, except for models that handle
+// long audio themselves and streaming models, which never see a whole clip.
 const TARGET_SECONDS = 30;
 const HARD_MAX = 40 * RATE;
 const MIN_CHUNK = 5 * RATE;
@@ -18,9 +18,24 @@ const MIN_SPEECH = (250 * RATE) / 1000;
 const MIN_SILENCE = (100 * RATE) / 1000;
 const SPEECH_PAD = (30 * RATE) / 1000;
 
+/**
+ * Models or families that window or chunk long audio themselves
+ */
+const HANDLES_LONG_AUDIO: ReadonlyArray<{ family: string } | { id: string }> = [
+  { family: "whisper" },
+  { id: "parakeet-ultra" }, // Other Parakeets don't.
+];
+
+function handlesLongAudio(model: CatalogModel): boolean {
+  return HANDLES_LONG_AUDIO.some((entry) =>
+    "family" in entry ? entry.family === model.family : entry.id === model.id);
+}
+
+/** Models outside the catalog are chunked: nothing says they handle long audio. */
 export function chunksTranscription(modelId: string): boolean {
   const model = getCatalogModel(modelId);
-  return model !== undefined && model.family !== "whisper" && !model.capabilities.streaming;
+  if (!model) return true;
+  return !handlesLongAudio(model) && !model.capabilities.streaming;
 }
 
 /** Audio this short is decoded in one piece. */
