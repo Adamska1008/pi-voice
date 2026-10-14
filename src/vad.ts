@@ -218,10 +218,7 @@ export class VoiceActivityFilter implements SpeechFilter {
     this.kept.push(chunk);
     const whole = frames.filter((frame) => frame.samples.length === CAPTURE_CHUNK_SAMPLES);
     const probs = whole.every((frame) => frame.prob !== undefined) ? whole.map((frame) => frame.prob!) : undefined;
-    try {
-      if (probs) this.options.onSpeech(chunk, probs);
-      else this.options.onSpeech(chunk);
-    } catch { /* Still in the final transcript. */ }
+    try { this.options.onSpeech(chunk, probs); } catch { /* Still in the final transcript. */ }
   }
 
   private release(): void {

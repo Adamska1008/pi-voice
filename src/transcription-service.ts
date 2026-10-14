@@ -4,7 +4,7 @@ import {
   ChunkedDictationStream,
   ChunkedTranscriber,
   chunksTranscription,
-  fitsOneChunk,
+  MAX_CHUNK_SAMPLES,
   type ChunkDecoder,
 } from "./chunking.js";
 import { Deferred } from "./deferred.js";
@@ -184,7 +184,7 @@ export class TranscriptionService {
           state.streamError !== undefined ||
           chunk.length === 0
         ) return;
-        state.chunks.push(probs ? { pcm: chunk, probs } : { pcm: chunk });
+        state.chunks.push({ pcm: chunk, probs });
         this.startDrain(state);
       },
       submit: (pcm, signal) => {
@@ -538,7 +538,7 @@ export class TranscriptionService {
     signal.throwIfAborted();
     const decoder = this.takeDecoder(backend, settings, policy, signal);
     let text: string;
-    if (chunksTranscription(settings.model.id)) {
+    if (chunksTranscription(settings.model.id) && pcm.length > MAX_CHUNK_SAMPLES) {
       const transcriber = new ChunkedTranscriber(decoder.decode);
       transcriber.push(pcm, await this.scoreLongClip(pcm, signal));
       text = await transcriber.finish();
@@ -551,7 +551,6 @@ export class TranscriptionService {
 
   /** Scores for a clip too long for one chunk; undefined decodes it in one piece. */
   private async scoreLongClip(pcm: Float32Array, signal: AbortSignal): Promise<readonly number[] | undefined> {
-    if (fitsOneChunk(pcm.length)) return undefined;
     if (!this.scoreClip) {
       log.warn("no voice activity detection; decoding the clip in one piece");
       return undefined;

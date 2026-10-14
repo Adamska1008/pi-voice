@@ -51,7 +51,6 @@ export class PcmChunker {
     this.pieces = [];
     this.probs = [];
     this.sampleCount = 0;
-    if (probs) this.onChunk(pcm, probs);
-    else this.onChunk(pcm);
+    this.onChunk(pcm, probs);
   }
 }

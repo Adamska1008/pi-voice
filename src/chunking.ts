@@ -6,7 +6,8 @@ import type { DictationStream } from "./transcription.js";
 // Long audio is decoded in chunks cut at pauses, except for models that handle
 // long audio themselves and streaming models, which never see a whole clip.
 const TARGET_SECONDS = 30;
-const HARD_MAX = 40 * RATE;
+/** Audio up to this many samples is decoded in one piece; longer audio is cut. */
+export const MAX_CHUNK_SAMPLES = 40 * RATE;
 const MIN_CHUNK = 5 * RATE;
 // Live, a cut is only final once the audio a little past it is scored.
 const LOOKAHEAD = RATE;
@@ -36,11 +37,6 @@ export function chunksTranscription(modelId: string): boolean {
   const model = getCatalogModel(modelId);
   if (!model) return true;
   return !handlesLongAudio(model) && !model.capabilities.streaming;
-}
-
-/** Audio this short is decoded in one piece. */
-export function fitsOneChunk(samples: number): boolean {
-  return samples <= HARD_MAX;
 }
 
 export type SpeechSegment = { start: number; end: number };
@@ -113,11 +109,14 @@ export function cutCandidates(segments: readonly SpeechSegment[], samples: numbe
 export function planCuts(candidates: readonly CutCandidate[], samples: number, from = 0): number[] {
   const cuts: number[] = [];
   let start = from;
-  while (samples - start > HARD_MAX) {
+  // Candidates are in order, and each window starts after the last.
+  let first = 0;
+  while (samples - start > MAX_CHUNK_SAMPLES) {
+    while (first < candidates.length && candidates[first]!.cut < start + MIN_CHUNK) first++;
     let best: number | undefined;
     let bestScore = -Infinity;
-    for (const { cut, gapSeconds } of candidates) {
-      if (cut < start + MIN_CHUNK || cut > start + HARD_MAX) continue;
+    for (let i = first; i < candidates.length && candidates[i]!.cut <= start + MAX_CHUNK_SAMPLES; i++) {
+      const { cut, gapSeconds } = candidates[i]!;
       const position = (cut - start) / RATE;
       const score = Math.min(gapSeconds, 1) - (position > TARGET_SECONDS
         ? 0.1 * (position - TARGET_SECONDS)
@@ -127,7 +126,7 @@ export function planCuts(candidates: readonly CutCandidate[], samples: number, f
         bestScore = score;
       }
     }
-    start = best ?? start + HARD_MAX;
+    start = best ?? start + MAX_CHUNK_SAMPLES;
     cuts.push(start);
   }
   return cuts;
@@ -179,15 +178,18 @@ export class ChunkedTranscriber {
     if (pcm.length === 0) return;
     this.trackScores(pcm.length, probs);
     this.append(pcm);
-    while (this.scored && this.length - this.start > HARD_MAX + LOOKAHEAD) {
-      this.commit(planCuts(this.candidates(), this.length, this.start)[0]!);
+    if (!this.scored || this.length - this.start <= MAX_CHUNK_SAMPLES + LOOKAHEAD) return;
+    // One plan, committed while each cut's whole window plus the lookahead is scored.
+    for (const cut of planCuts(this.candidates(), this.length, this.start)) {
+      if (this.length - this.start <= MAX_CHUNK_SAMPLES + LOOKAHEAD) break;
+      this.commit(cut);
     }
   }
 
   /** The joined transcript, once every chunk is decoded. */
   async finish(): Promise<string> {
     const samples = this.length;
-    if (!this.scored && samples - this.start > HARD_MAX) {
+    if (!this.scored && samples - this.start > MAX_CHUNK_SAMPLES) {
       log.info(`no voice activity for the last ${seconds(samples - this.start)} s; decoding it in one piece`);
     }
     const cuts = this.scored ? planCuts(this.candidates(), samples, this.start) : [];
@@ -271,7 +273,8 @@ export class ChunkedDictationStream implements DictationStream {
   async finalize(audio?: Float32Array): Promise<string> {
     if (this.closed) throw new Error("Dictation stream is closed");
     this.closed = true;
-    // A feed that failed upstream: the batch path has the whole take.
+    // Feeding is optional, so the submitted take can hold audio this stream
+    // never saw; the batch path then transcribes the whole take.
     if (audio && audio.length !== this.transcriber.samples) {
       throw new Error(`the stream got ${this.transcriber.samples} of ${audio.length} samples`);
     }
