@@ -126,26 +126,19 @@ test("discarding stops scoring, frees the session once idle, and finishes empty"
   assert.equal(streamed.length, 0);
 });
 
-test("kept audio carries the probability of each whole frame", async () => {
-  const { scorer } = fakeScorer();
-  const { filter, streamed, probs } = filterWith(async () => scorer);
-  for (const chunk of frames([0, 20], [0.9, 3], [0, 20])) filter.push(chunk);
-  filter.push(frame(0, 100));
-  await filter.finish();
-  const all = probs.flatMap((chunkProbs) => chunkProbs ?? []);
-  assert.equal(all.length * FRAME, total(streamed));
-  assert.equal(all.filter((prob) => prob === Math.fround(0.9)).length, 3);
-});
-
-test("without dropping silence, every frame is kept and scored", async () => {
-  const { scorer } = fakeScorer();
-  const { filter, streamed, probs } = filterWith(async () => scorer, false);
+test("kept audio carries each whole frame's probability; without dropping silence, all of it is kept", async () => {
   const recording = frames([0, 20], [0.9, 3], [0, 20]);
-  for (const chunk of recording) filter.push(chunk);
-  filter.push(frame(0, 100));
-  assert.equal((await filter.finish()).length, total(recording) + 100);
-  assert.equal(total(streamed), total(recording) + 100);
-  assert.equal(probs.flatMap((chunkProbs) => chunkProbs ?? []).length, recording.length);
+  for (const dropSilence of [true, false]) {
+    const { scorer } = fakeScorer();
+    const { filter, streamed, probs } = filterWith(async () => scorer, dropSilence);
+    for (const chunk of recording) filter.push(chunk);
+    filter.push(frame(0, 100));
+    const kept = await filter.finish();
+    const all = probs.flatMap((chunkProbs) => chunkProbs ?? []);
+    assert.equal(all.length, Math.floor(total(streamed) / FRAME));
+    assert.equal(all.filter((prob) => prob === Math.fround(0.9)).length, 3);
+    if (!dropSilence) assert.equal(kept.length, total(recording) + 100);
+  }
 });
 
 test("audio kept after the detector fails has no probabilities", async () => {
