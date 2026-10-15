@@ -122,6 +122,7 @@ type TranscribeCppRuntime = Pick<
 
 type RuntimeLoader = () => Promise<TranscribeCppRuntime>;
 
+// Best-effort: load failures don't report their device, so any non-CPU device is assumed to have been used.
 function cpuFallbackDevice(runtime: TranscribeCppRuntime): BackendInfo | undefined {
   const devices = runtime.getAvailableBackends();
   const acceleratorAvailable = devices.some((device) => device.deviceType !== "cpu");
