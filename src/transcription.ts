@@ -1,4 +1,5 @@
 import type {
+  BackendInfo,
   Capabilities,
   LangIdResult,
   Session,
@@ -6,7 +7,7 @@ import type {
   TranscribeModel,
 } from "transcribe-cpp";
 import { convertChineseOutput, shouldConvertChinese } from "./chinese.js";
-import { writeLog, type LogLevel } from "./log.js";
+import { describeError, log, writeLog, type LogLevel } from "./log.js";
 import type { ChineseOutput } from "./settings.js";
 
 export type TranscriptionOptions = {
@@ -114,6 +115,22 @@ export function routeTranscribeLog(setLogHandler: typeof import("transcribe-cpp"
   });
 }
 
+type TranscribeCppRuntime = Pick<
+  typeof import("transcribe-cpp"),
+  "getAvailableBackends" | "OutOfMemory" | "setLogHandler" | "TranscribeModel"
+>;
+
+type RuntimeLoader = () => Promise<TranscribeCppRuntime>;
+
+// Best-effort: load failures don't report their device, so any non-CPU device is assumed to have been used.
+function cpuFallbackDevice(runtime: TranscribeCppRuntime): BackendInfo | undefined {
+  const devices = runtime.getAvailableBackends();
+  const acceleratorAvailable = devices.some((device) => device.deviceType !== "cpu");
+  return acceleratorAvailable
+    ? devices.find((device) => device.deviceType === "cpu")
+    : undefined;
+}
+
 /**
  * A reusable loaded transcribe.cpp model: an ASR model, or the language
  * detector. Calls must be scheduled sequentially.
@@ -123,17 +140,28 @@ export class TranscribeCppBackend {
   private loading: Promise<TranscribeModel> | undefined;
   private disposed = false;
 
-  constructor(private readonly modelPath: string) {}
+  constructor(
+    private readonly modelPath: string,
+    private readonly loadRuntime: RuntimeLoader = () => import("transcribe-cpp"),
+  ) {}
 
   async prepare(): Promise<void> {
     if (this.model) return;
     if (this.disposed) throw new Error("Transcription backend has been disposed");
 
     if (!this.loading) {
-      this.loading = import("transcribe-cpp")
-        .then(({ TranscribeModel, setLogHandler }) => {
-          routeTranscribeLog(setLogHandler);
-          return TranscribeModel.load(this.modelPath);
+      this.loading = this.loadRuntime()
+        .then(async (runtime) => {
+          routeTranscribeLog(runtime.setLogHandler);
+          try {
+            return await runtime.TranscribeModel.load(this.modelPath);
+          } catch (error) {
+            if (!(error instanceof runtime.OutOfMemory)) throw error;
+            const cpu = cpuFallbackDevice(runtime);
+            if (!cpu) throw error;
+            log.warn(`accelerator model load ran out of memory; retrying on CPU: ${describeError(error)}`);
+            return runtime.TranscribeModel.load(this.modelPath, { device: cpu });
+          }
         })
         .then((model) => {
           if (this.disposed) {
