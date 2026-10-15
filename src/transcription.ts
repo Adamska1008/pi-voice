@@ -1,6 +1,8 @@
 import type {
+  BackendInfo,
   Capabilities,
   LangIdResult,
+  ModelOptions,
   Session,
   Stream,
   TranscribeModel,
@@ -114,6 +116,29 @@ export function routeTranscribeLog(setLogHandler: typeof import("transcribe-cpp"
   });
 }
 
+type TranscribeCppRuntime = Pick<
+  typeof import("transcribe-cpp"),
+  "getAvailableBackends" | "OutOfMemory" | "setLogHandler" | "TranscribeModel"
+>;
+
+type RuntimeLoader = () => Promise<TranscribeCppRuntime>;
+
+function cpuFallbackDevice(runtime: TranscribeCppRuntime): BackendInfo | undefined {
+  const devices = runtime.getAvailableBackends();
+  const acceleratorAvailable = devices.some((device) => device.deviceType !== "cpu");
+  return acceleratorAvailable
+    ? devices.find((device) => device.deviceType === "cpu")
+    : undefined;
+}
+
+async function loadModel(
+  runtime: TranscribeCppRuntime,
+  modelPath: string,
+  options?: ModelOptions,
+): Promise<TranscribeModel> {
+  return runtime.TranscribeModel.load(modelPath, options);
+}
+
 /**
  * A reusable loaded transcribe.cpp model: an ASR model, or the language
  * detector. Calls must be scheduled sequentially.
@@ -123,17 +148,32 @@ export class TranscribeCppBackend {
   private loading: Promise<TranscribeModel> | undefined;
   private disposed = false;
 
-  constructor(private readonly modelPath: string) {}
+  constructor(
+    private readonly modelPath: string,
+    private readonly loadRuntime: RuntimeLoader = () => import("transcribe-cpp"),
+  ) {}
 
   async prepare(): Promise<void> {
     if (this.model) return;
     if (this.disposed) throw new Error("Transcription backend has been disposed");
 
     if (!this.loading) {
-      this.loading = import("transcribe-cpp")
-        .then(({ TranscribeModel, setLogHandler }) => {
-          routeTranscribeLog(setLogHandler);
-          return TranscribeModel.load(this.modelPath);
+      this.loading = this.loadRuntime()
+        .then(async (runtime) => {
+          routeTranscribeLog(runtime.setLogHandler);
+          try {
+            return await loadModel(runtime, this.modelPath);
+          } catch (error) {
+            if (!(error instanceof runtime.OutOfMemory)) throw error;
+            const cpu = cpuFallbackDevice(runtime);
+            if (!cpu) throw error;
+            writeLog(
+              "warn",
+              "voice",
+              "accelerator model load ran out of memory; retrying on CPU",
+            );
+            return loadModel(runtime, this.modelPath, { device: cpu });
+          }
         })
         .then((model) => {
           if (this.disposed) {
