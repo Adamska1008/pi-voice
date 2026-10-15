@@ -2,13 +2,12 @@ import type {
   BackendInfo,
   Capabilities,
   LangIdResult,
-  ModelOptions,
   Session,
   Stream,
   TranscribeModel,
 } from "transcribe-cpp";
 import { convertChineseOutput, shouldConvertChinese } from "./chinese.js";
-import { writeLog, type LogLevel } from "./log.js";
+import { describeError, log, writeLog, type LogLevel } from "./log.js";
 import type { ChineseOutput } from "./settings.js";
 
 export type TranscriptionOptions = {
@@ -131,14 +130,6 @@ function cpuFallbackDevice(runtime: TranscribeCppRuntime): BackendInfo | undefin
     : undefined;
 }
 
-async function loadModel(
-  runtime: TranscribeCppRuntime,
-  modelPath: string,
-  options?: ModelOptions,
-): Promise<TranscribeModel> {
-  return runtime.TranscribeModel.load(modelPath, options);
-}
-
 /**
  * A reusable loaded transcribe.cpp model: an ASR model, or the language
  * detector. Calls must be scheduled sequentially.
@@ -162,17 +153,13 @@ export class TranscribeCppBackend {
         .then(async (runtime) => {
           routeTranscribeLog(runtime.setLogHandler);
           try {
-            return await loadModel(runtime, this.modelPath);
+            return await runtime.TranscribeModel.load(this.modelPath);
           } catch (error) {
             if (!(error instanceof runtime.OutOfMemory)) throw error;
             const cpu = cpuFallbackDevice(runtime);
             if (!cpu) throw error;
-            writeLog(
-              "warn",
-              "voice",
-              "accelerator model load ran out of memory; retrying on CPU",
-            );
-            return loadModel(runtime, this.modelPath, { device: cpu });
+            log.warn(`accelerator model load ran out of memory; retrying on CPU: ${describeError(error)}`);
+            return runtime.TranscribeModel.load(this.modelPath, { device: cpu });
           }
         })
         .then((model) => {
