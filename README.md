@@ -68,10 +68,6 @@ The legacy `PI_TRANSCRIBE_FFMPEG_PATH` variable remains supported when `PI_VOICE
 
 When FFmpeg is unavailable, `transcribe_file` reports platform-specific guidance to the agent. The agent should ask before running a package-manager command. Model setup is still explicit: run `/voice-settings` once in the interactive TUI to choose and, after confirmation, download a local model.
 
-## Accelerator memory pressure
-
-Pi Voice normally uses the accelerator selected by `transcribe-cpp`. If loading the model fails because the accelerator is out of memory, Pi Voice automatically retries the same model on the system CPU. This keeps dictation available when another local model or application is using GPU memory, without terminating or unloading unrelated processes. The fallback can be slower and still needs enough system RAM for the selected model.
-
 ## Developing & Building Pi Voice
 
 To develop or run it from a checkout:
