@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { log } from "./log.js";
 
-export const MAX_VOCABULARY_TERMS = 64;
+export const MAX_VOCABULARY_TERMS = 128;
 export const MAX_VOCABULARY_CHARACTERS = 4096;
 
 export type VocabularySnapshot = {

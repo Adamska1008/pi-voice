@@ -14,7 +14,7 @@ function mentions(text: string, term: string): boolean {
 /** Conversation tier of the vocabulary cache. Positions are stable current-branch entry indices. */
 export class VocabularyCache {
   private seen = new Map<string, number>();
-  constructor(private readonly capacity = 64) {
+  constructor(private readonly capacity = 128) {
     if (!Number.isInteger(capacity) || capacity < 1) throw new Error("Invalid vocabulary capacity");
   }
 
@@ -30,7 +30,7 @@ export class VocabularyCache {
     for (const [term] of this.ordered().slice(this.capacity)) this.seen.delete(term);
   }
 
-  snapshot(): readonly string[] { return Object.freeze(this.ordered().slice(0, 32).map(([term]) => term)); }
+  snapshot(): readonly string[] { return Object.freeze(this.ordered().slice(0, 64).map(([term]) => term)); }
   entries(): [string, number][] { return this.ordered(); }
   clear(): void { this.seen.clear(); }
   private ordered(): [string, number][] {

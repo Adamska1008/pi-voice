@@ -86,6 +86,13 @@ test("manual vocabulary keeps its order and spelling; automatic terms fill remai
   assert.deepEqual(mergeVocabulary(manual, ["extra"]), manual);
 });
 
+test("64 automatic terms fit alongside 64 manual terms", () => {
+  const manual = Array.from({ length: 64 }, (_, i) => `Manual${i}`);
+  const automatic = Array.from({ length: 64 }, (_, i) => `Auto${i}`);
+  assert.deepEqual(mergeVocabulary(manual, automatic), [...manual, ...automatic]);
+  assert.equal(mergeVocabulary(manual, [...automatic, "overflow"]).length, 128);
+});
+
 test("automatic terms never displace manual terms to fit the character budget", () => {
   const manual = ["a".repeat(MAX_VOCABULARY_CHARACTERS - 4)];
   assert.deepEqual(mergeVocabulary(manual, ["too-long", "😀", "Pi", "extra"]), [...manual, "😀", "Pi"]);

@@ -17,7 +17,7 @@ export function restoreVocabulary(cache: VocabularyCache, branch: readonly Sessi
   const checkpoint = [...branch].reverse().find(entry => entry.type === "custom" && entry.customType === VOCABULARY_STATE_TYPE);
   const data = checkpoint?.type === "custom" ? checkpoint.data : undefined;
   if (!data || typeof data !== "object" || !("version" in data) || data.version !== 1
-    || !("terms" in data) || !Array.isArray(data.terms) || data.terms.length > 64) return;
+    || !("terms" in data) || !Array.isArray(data.terms) || data.terms.length > 128) return;
   const byId = new Map(branch.map((entry, position) => [entry.id, { entry, position }]));
   for (const item of data.terms) {
     if (!item || typeof item !== "object" || typeof item.text !== "string" || typeof item.entryId !== "string"

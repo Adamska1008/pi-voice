@@ -42,14 +42,15 @@ test("identifier substrings do not refresh terms, while Chinese adjacency does",
   assert.deepEqual(cache.snapshot(), ["Pi", "Dolt"]);
 });
 
-test("output remains capped at 32 and reading snapshots does not refresh recency", () => {
+test("output remains capped at 64 and reading snapshots does not refresh recency", () => {
   const cache = new VocabularyCache();
-  const words = Array.from({ length: 70 }, (_, i) => `Term${i}`);
+  const words = Array.from({ length: 134 }, (_, i) => `Term${i}`);
   cache.update(words, words.map((text, position) => ({ text, position })));
-  assert.deepEqual(cache.snapshot(), words.slice(-32).reverse());
-  assert.deepEqual(cache.snapshot(), words.slice(-32).reverse());
-  cache.update([], [{ position: 100, text: "Term0" }]); // Evicted, so cannot refresh without rediscovery.
-  assert.deepEqual(cache.snapshot(), words.slice(-32).reverse());
-  cache.update([], [{ position: 101, text: "Term6" }]); // Oldest surviving candidate can return to the front.
+  assert.equal(cache.entries().length, 128);
+  assert.deepEqual(cache.snapshot(), words.slice(-64).reverse());
+  assert.deepEqual(cache.snapshot(), words.slice(-64).reverse());
+  cache.update([], [{ position: 200, text: "Term0" }]); // Evicted, so cannot refresh without rediscovery.
+  assert.deepEqual(cache.snapshot(), words.slice(-64).reverse());
+  cache.update([], [{ position: 201, text: "Term6" }]); // Oldest surviving candidate can return to the front.
   assert.equal(cache.snapshot()[0], "Term6");
 });

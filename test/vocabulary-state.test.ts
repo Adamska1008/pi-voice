@@ -32,18 +32,18 @@ test("Pi writes the checkpoint to disk and a reopened session restores it outsid
   assert.equal(reopened.buildSessionContext().messages.length, 2);
 });
 
-test("source IDs preserve recency across changed positions and retain all 64 candidates", () => {
+test("source IDs preserve recency across changed positions and retain all 128 candidates", () => {
   const cache = new VocabularyCache();
-  const words = Array.from({ length: 64 }, (_, i) => `Term${i}`);
+  const words = Array.from({ length: 128 }, (_, i) => `Term${i}`);
   const original = branch(...words.map((text, i) => message(`source${i}`, text)));
   cache.update(words, words.map((text, position) => ({ text, position })));
   const state = JSON.parse(JSON.stringify(vocabularyState(cache, original)));
-  assert.equal(state.terms.length, 64);
+  assert.equal(state.terms.length, 128);
   const restored = new VocabularyCache();
   restoreVocabulary(restored, branch(message("extra", "unrelated"), ...original, checkpoint(state)));
   assert.deepEqual(restored.snapshot(), cache.snapshot());
-  assert.equal(restored.entries().length, 64);
-  restored.update([], [{ position: 100, text: "Term0" }]);
+  assert.equal(restored.entries().length, 128);
+  restored.update([], [{ position: 200, text: "Term0" }]);
   assert.equal(restored.snapshot()[0], "Term0");
   assert.deepEqual(Object.keys(state.terms[0]).sort(), ["entryId", "text"]);
 });
@@ -51,7 +51,7 @@ test("source IDs preserve recency across changed positions and retain all 64 can
 test("invalid checkpoints and terms without valid current-branch prose evidence are ignored", () => {
   const cache = new VocabularyCache();
   const source = message("valid", "Dolt");
-  for (const data of [null, {}, { version: 2, terms: [] }, { version: 1, terms: Array(65).fill({}) }]) {
+  for (const data of [null, {}, { version: 2, terms: [] }, { version: 1, terms: Array(129).fill({}) }]) {
     restoreVocabulary(cache, branch(source, checkpoint(data)));
     assert.deepEqual(cache.snapshot(), []);
   }

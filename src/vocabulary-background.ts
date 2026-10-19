@@ -7,7 +7,7 @@ import { VocabularyCache, type VocabularyObservation } from "./vocabulary-cache.
 import { restoreVocabulary, vocabularyState, VOCABULARY_STATE_TYPE } from "./vocabulary-state.js";
 
 const INSTRUCTIONS = "Select vocabulary hints for speech recognition, not a summary of conversation topics. "
-  + "Extract at most 32 terms explicitly present in the conversation whose exact spelling is likely to need help: "
+  + "Extract at most 64 terms explicitly present in the conversation whose exact spelling is likely to need help: "
   + "unusual proper names, project names, model/version names, specialized acronyms and code identifiers. "
   + "Prefer names or spellings the user explicitly corrected. Copy exact spelling; never invent aliases. "
   + "Skip common Chinese/English words and routine technical words (e.g. token, usage, cost, backend, provider), "
@@ -24,13 +24,41 @@ export async function extractVocabulary(ctx: ExtensionContext, input: string, si
   const model = ctx.model;
   if (!model) throw new ExtractionFailure("no-model");
   signal.throwIfAborted();
+  const requestId = randomUUID();
+  const sessionId = ctx.sessionManager.getSessionId();
+  const started = performance.now();
+  let usage: unknown;
+  let status = "error";
+  try {
+    const result = await runExtraction(ctx, model, input, signal, requestId, value => { usage = value; });
+    status = "success";
+    return result;
+  } finally {
+    const source = usage && typeof usage === "object" ? usage as Record<string, unknown> : {};
+    const tokens = Object.fromEntries(["input", "output", "cacheRead", "cacheWrite", "totalTokens"].map(key => {
+      const value = source[key];
+      return [key, typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null];
+    }));
+    log.info(`voice vocabulary usage: ${JSON.stringify({
+      sessionId, requestId, provider: model.provider, model: model.id,
+      status: signal.aborted ? "cancelled" : status, elapsedMs: Math.round(performance.now() - started),
+      usageStatus: Object.values(tokens).every(value => value !== null) ? "reported" : "unknown-or-partial",
+      tokens,
+    })}`);
+  }
+}
+
+async function runExtraction(
+  ctx: ExtensionContext, model: NonNullable<ExtensionContext["model"]>, input: string,
+  signal: AbortSignal, requestId: string, onUsage: (usage: unknown) => void,
+): Promise<string[]> {
   const context: Parameters<ExtractionStream>[1] = {
     systemPrompt: INSTRUCTIONS,
     messages: [{ role: "user", content: input, timestamp: Date.now() }],
   };
   const options: NonNullable<Parameters<ExtractionStream>[2]> = {
     signal,
-    maxTokens: 512, maxRetries: 0, cacheRetention: "none", sessionId: randomUUID(),
+    maxTokens: 512, maxRetries: 0, cacheRetention: "none", sessionId: requestId,
   };
   // Pi 1.x providers require normalized system messages. The registry owns that
   // conversion and request-time authentication; older Pi exposes only providers.
@@ -49,6 +77,7 @@ export async function extractVocabulary(ctx: ExtensionContext, input: string, si
     stream = provider.streamSimple(model, context, { ...options, apiKey: auth.apiKey, headers: auth.headers, env: auth.env });
   }
   const response = await stream.result();
+  onUsage(response.usage);
   signal.throwIfAborted();
   if (response.stopReason !== "stop") {
     const reason = ["length", "error", "aborted", "toolUse"].includes(response.stopReason) ? response.stopReason : "unknown";
@@ -62,7 +91,7 @@ export async function extractVocabulary(ctx: ExtensionContext, input: string, si
     throw new ExtractionFailure("invalid-format");
   }
   return [...new Set<string>(parsed)].filter(term => term.length >= 2 && term.length <= 128
-    && term.trim() === term && !/[\r\n]/.test(term) && input.includes(term)).slice(0, 32);
+    && term.trim() === term && !/[\r\n]/.test(term) && input.includes(term)).slice(0, 64);
 }
 
 /** Register cheap handlers; persist vocabulary through Pi, without duplicating conversation text. */
