@@ -4,6 +4,8 @@ Local speech-to-text for Pi.
 
 Press a keyboard shortcut, talk, and the resulting transcript will be put directly into your chat.
 
+Project development notes: [bug fix history](docs/bug-history/README.md).
+
 ## Install
 
 Install the npm package:
