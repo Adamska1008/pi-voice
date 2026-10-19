@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { BackendInfo, ModelOptions, TranscribeModel, TranscribeOptions } from "transcribe-cpp";
 import { TranscribeCppBackend } from "../src/transcription.js";
+import { log } from "../src/log.js";
 
 type RuntimeLoader = NonNullable<ConstructorParameters<typeof TranscribeCppBackend>[1]>;
 type TestRuntime = Awaited<ReturnType<RuntimeLoader>>;
@@ -43,7 +44,10 @@ test("vocabulary reaches native batch and stream calls only when supported and n
 class TestOutOfMemory extends Error {}
 
 test("reference prompt uses the model tokenizer once per snapshot and reaches stream and batch", async t => {
+  const diagnostics: string[] = [];
+  t.mock.method(log, "info", (line: string) => diagnostics.push(line));
   for (const supported of [true, false]) {
+    diagnostics.length = 0;
     const calls: TranscribeOptions[] = [];
     let tokenizations = 0;
     const model = {
@@ -66,16 +70,21 @@ test("reference prompt uses the model tokenizer once per snapshot and reaches st
     assert.equal(tokenizations, counted, "stream reuses the exact same prepared prompt");
     assert.equal(calls[0]!.prompt, calls[1]!.prompt);
     assert.deepEqual(calls[0]!.vocabulary, ["Dolt"]);
+    assert.equal(diagnostics.filter(line => line.includes("ASR vocabulary input: offered=1 applied=1")).length, 2);
     if (supported) {
+      const tokens = Array.from(calls[0]!.prompt!).length * 3;
+      assert.equal(diagnostics.filter(line => line.includes(`tokens=${tokens} applied=true`)).length, 2);
       assert.ok(Array.from(calls[0]!.prompt!).length * 3 <= 1024);
       assert.match(calls[0]!.prompt!, /Dolt/);
       assert.match(calls[0]!.prompt!, /不要修改/);
     } else {
+      assert.equal(diagnostics.filter(line => line.includes("tokens=0 reason=unsupported")).length, 2);
       assert.equal(counted, 0);
       assert.equal(calls[0]!.prompt, undefined);
     }
     await backend.transcribe(Float32Array.of(1));
     assert.equal(calls[2]!.prompt, undefined, "unrelated transcription does not inherit context");
+    assert.doesNotMatch(diagnostics.join("\n"), /Dolt|中间内容|不要修改/);
   }
 });
 

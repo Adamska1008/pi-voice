@@ -88,6 +88,8 @@ after normalization; oversized lists are rejected, not silently truncated.
 These are application limits, not model token budgets.
 
 Background extraction now sends filtered recent conversation to Pi's selected text model after the agent settles.
+On newer Pi versions it uses the model registry to normalize system instructions and resolve authentication;
+older Pi versions retain the legacy provider path.
 It runs initially, then after two new user turns, with a 30-second cooldown, input deduplication and one request at a time.
 This is an additional model request and may consume quota. Input is capped at 1024 UTF-8 bytes (not tokens); output at 512 tokens.
 Automatic conversation terms use a 64-entry LRU; up to 32 are offered to each recording, newest mentions first.
@@ -106,6 +108,9 @@ Models supporting `context_prompt` receive it alongside vocabulary; code blocks,
 The loaded ASR model's tokenizer bounds the reference prompt to 1024 tokens, separately from vocabulary and model formatting overhead.
 One prepared prompt is reused for every chunk, native stream and fallback in that recording. Unsupported models omit it; file jobs receive none.
 Reload Pi with `/reload` to activate these handlers. No extraction results or conversation text are written to the repository.
+Diagnostics are enabled at info level in `~/.pi/agent/pi-voice.log`: extraction decisions/results/failure categories,
+checkpoint counts, manual/automatic vocabulary counts, and ASR-applied vocabulary counts and context token counts.
+They omit terms, conversation text, model responses and credentials. ASR input logs show parameters passed, not their effect on recognition.
 
 ## Developing & Building Pi Voice
 

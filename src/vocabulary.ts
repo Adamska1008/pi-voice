@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { log } from "./log.js";
 
 export const MAX_VOCABULARY_TERMS = 64;
 export const MAX_VOCABULARY_CHARACTERS = 4096;
@@ -30,7 +31,10 @@ export async function readDictationVocabulary(
   getAutomatic: () => readonly string[],
 ): Promise<VocabularySnapshot> {
   const manual = await readProjectVocabulary(projectDirectory);
-  return { ...manual, terms: mergeVocabulary(manual.terms, getAutomatic()) };
+  const automatic = getAutomatic();
+  const terms = mergeVocabulary(manual.terms, automatic);
+  log.info(`voice vocabulary snapshot: manual=${manual.terms.length} automatic=${automatic.length} automaticAdded=${terms.length - manual.terms.length} merged=${terms.length}`);
+  return { ...manual, terms };
 }
 
 /** Read only this project's file; each call returns a fresh snapshot. */

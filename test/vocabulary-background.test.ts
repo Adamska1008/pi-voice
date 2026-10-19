@@ -9,6 +9,7 @@ import { readDictationVocabulary } from "../src/vocabulary.js";
 import { DictationController } from "../src/dictation-controller.js";
 import { settingsForModel } from "../src/settings.js";
 import { FakeMicrophone, fakeDictationService } from "./dictation-helper.js";
+import { log } from "../src/log.js";
 
 function fixture() {
   const handlers = new Map<string, Function>();
@@ -38,6 +39,82 @@ function fixture() {
   return { ctx, calls, warnings, getTerms, emit, user, messages, setReply: (fn: typeof reply) => { reply = fn; } };
 }
 const flush = () => new Promise(resolve => setImmediate(resolve));
+
+test("modern registry receives extraction instructions and owns authentication", async t => {
+  const f = fixture();
+  const registry = f.ctx.modelRegistry;
+  t.mock.method(registry, "getProvider", () => { throw new Error("must not bypass registry"); });
+  t.mock.method(registry, "getApiKeyAndHeaders", async () => { throw new Error("registry owns auth"); });
+  let calls = 0;
+  Object.assign(registry, { streamSimple(model: unknown, context: any, options: any) {
+    assert.equal(this, registry);
+    calls++;
+    assert.equal(model, f.ctx.model);
+    assert.match(context.systemPrompt, /Return ONLY a JSON array of strings/);
+    assert.equal(context.messages[0].content, "Explain Qwen3-ASR");
+    assert.equal(options.apiKey, undefined);
+    assert.equal(options.signal.aborted, false);
+    assert.equal(options.maxTokens, 512);
+    return { result: async () => ({ stopReason: "stop", content: [{ type: "text", text: '["Qwen3-ASR"]' }] }) };
+  } });
+  assert.deepEqual(await extractVocabulary(f.ctx, "Explain Qwen3-ASR", new AbortController().signal), ["Qwen3-ASR"]);
+  await assert.rejects(extractVocabulary(f.ctx, "Explain Qwen3-ASR", AbortSignal.abort()));
+  assert.equal(calls, 1);
+});
+
+test("a modern registry failure never falls back to an unnormalized provider request", async t => {
+  const f = fixture();
+  t.mock.method(f.ctx.modelRegistry, "getProvider", () => { throw new Error("unexpected fallback"); });
+  Object.assign(f.ctx.modelRegistry, { streamSimple: () => ({ result: async () => { throw new Error("registry failure"); } }) });
+  await assert.rejects(extractVocabulary(f.ctx, "Qwen3-ASR", new AbortController().signal), /registry failure/);
+});
+
+test("diagnostics distinguish extraction results/failures without logging source or provider text", async t => {
+  const lines: string[] = [];
+  t.mock.method(log, "info", (line: string) => lines.push(line));
+  t.mock.method(log, "warn", (line: string) => lines.push(line));
+  const f = fixture();
+  t.after(() => f.emit("session_shutdown"));
+  f.emit("session_start");
+  f.user("Qwen3-ASR private-conversation"); f.emit("agent_settled"); await flush();
+  assert.ok(lines.some(line => line.includes("extraction started: userTurns=1")));
+  assert.ok(lines.some(line => line.includes("extracted=1 cached=1")));
+  assert.ok(lines.some(line => line.includes("checkpoint appended: terms=1")));
+  const failures: Array<[() => Promise<any>, string]> = [
+    [async () => ({ stopReason: "stop", content: [{ type: "text", text: "private-invalid-json" }] }), "invalid-json"],
+    [async () => ({ stopReason: "length", content: [] }), "incomplete-length"],
+    [async () => { throw Object.assign(new Error("secret-provider-response"), { status: 429 }); }, "provider-or-auth-error status=429"],
+  ];
+  for (const [reply, reason] of failures) {
+    const failed = fixture();
+    failed.setReply(reply); failed.user("private-conversation"); failed.emit("agent_settled"); await flush();
+    assert.ok(lines.some(line => line.includes(`extraction failed: reason=${reason}`)));
+    failed.emit("session_shutdown");
+  }
+  const empty = fixture();
+  empty.setReply(async () => ({ stopReason: "stop", content: [{ type: "text", text: "[]" }] }));
+  empty.user("private-conversation"); empty.emit("agent_settled"); await flush();
+  assert.ok(lines.some(line => line.includes("extracted=0 cached=0")));
+  empty.emit("session_shutdown");
+  assert.doesNotMatch(lines.join("\n"), /Qwen3-ASR|private-|secret-|test-only/);
+});
+
+test("diagnostics identify extraction timeout without exposing the abort error", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const lines: string[] = [];
+  t.mock.method(log, "warn", (line: string) => lines.push(line));
+  const f = fixture();
+  t.after(() => f.emit("session_shutdown"));
+  t.mock.method(f.ctx.modelRegistry, "getProvider", () => ({
+    streamSimple: (_model: unknown, _context: unknown, options: any) => ({
+      result: () => new Promise((_resolve, reject) => options.signal.addEventListener("abort", () => reject(new Error("private-abort")))),
+    }),
+  }));
+  f.user("private-conversation"); f.emit("agent_settled"); await flush();
+  t.mock.timers.tick(30_000); await flush();
+  assert.ok(lines.some(line => line.includes("reason=timeout")));
+  assert.doesNotMatch(lines.join("\n"), /private-/);
+});
 
 test("known conversation terms refresh without extraction and code blocks do not refresh them", async t => {
   const f = fixture();

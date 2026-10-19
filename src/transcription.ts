@@ -140,7 +140,7 @@ function cpuFallbackDevice(runtime: TranscribeCppRuntime): BackendInfo | undefin
  */
 export class TranscribeCppBackend {
   private vocabularyWarned = false;
-  private readonly prompts = new WeakMap<readonly VoiceContextMessage[], string>();
+  private readonly prompts = new WeakMap<readonly VoiceContextMessage[], { text: string; tokens: number }>();
   private model: TranscribeModel | undefined;
   private loading: Promise<TranscribeModel> | undefined;
   private disposed = false;
@@ -186,6 +186,7 @@ export class TranscribeCppBackend {
   }
 
   private vocabularyOptions(terms?: readonly string[]): { vocabulary?: readonly string[] } {
+    if (terms) log.info(`ASR vocabulary input: offered=${terms.length} applied=${this.model!.supports("vocabulary") ? terms.length : 0}`);
     if (!terms?.length) return {};
     if (this.model!.supports("vocabulary")) return { vocabulary: terms };
     if (!this.vocabularyWarned) {
@@ -196,13 +197,19 @@ export class TranscribeCppBackend {
   }
 
   private contextOptions(context?: readonly VoiceContextMessage[]): { prompt?: string } {
-    if (!context?.length || !this.model!.supports("context_prompt")) return {};
+    if (!context) return {};
+    if (!context.length || !this.model!.supports("context_prompt")) {
+      log.info(`ASR context input: messages=${context.length} tokens=0 reason=${context.length ? "unsupported" : "empty"}`);
+      return {};
+    }
     let prompt = this.prompts.get(context);
     if (prompt === undefined) {
-      prompt = buildRecentVoiceContext(context, text => this.model!.tokenize(text).length, 1024);
+      const text = buildRecentVoiceContext(context, text => this.model!.tokenize(text).length, 1024);
+      prompt = { text, tokens: text ? this.model!.tokenize(text).length : 0 };
       this.prompts.set(context, prompt);
     }
-    return prompt ? { prompt } : {};
+    log.info(`ASR context input: messages=${context.length} tokens=${prompt.tokens} applied=${Boolean(prompt.text)}`);
+    return prompt.text ? { prompt: prompt.text } : {};
   }
 
   async startStream(

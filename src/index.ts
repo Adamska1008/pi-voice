@@ -23,6 +23,7 @@ export default function piVoice(pi: ExtensionAPI): void {
   const getAutomaticVocabulary = registerVocabularyBackground(pi);
   // Opens nothing yet: the first line written creates the file.
   initLog({ path: logPath(), level: process.env.PI_VOICE_DEBUG === "1" ? "debug" : "info" });
+  log.info("voice diagnostics enabled: vocabulary and ASR input counts (no text)");
   const registeredShortcut = readShortcutForRegistration();
   let runtimePromise: Promise<PiVoiceRuntime> | undefined;
   let shuttingDown = false;
