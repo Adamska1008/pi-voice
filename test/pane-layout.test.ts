@@ -29,6 +29,7 @@ const settings: TranscribeSettings = {
   microphone: { type: "system-default" },
   voiceActivityDetection: true,
   longformChunking: true,
+  vocabulary: { cacheCapacity: 128, recordingLimit: 64, extractionLimit: 64 },
   model: {
     source: "catalog",
     id: "parakeet-unified-en-0.6b",

@@ -58,6 +58,7 @@ type ModelSelectionOptions = {
   microphone?: MicrophoneSetting;
   voiceActivityDetection?: boolean;
   longformChunking?: boolean;
+  vocabulary?: TranscribeSettings["vocabulary"];
   /** Persists language changes made before this flow activates a model. */
   onPreferredLanguagesChange?: (languages: string[]) => Promise<void>;
   postActivation?: CatalogModelPostActivation;
@@ -84,6 +85,7 @@ export async function runModelSelection(
       microphone: configured?.microphone ?? options.microphone ?? DEFAULT_MICROPHONE,
       voiceActivityDetection: configured?.voiceActivityDetection ?? options.voiceActivityDetection,
       longformChunking: configured?.longformChunking ?? options.longformChunking,
+      vocabulary: configured?.vocabulary ?? options.vocabulary,
     }),
     (settings) => {
       configured = settings;
@@ -214,6 +216,7 @@ export async function changeOnboardingModel(
       chineseOutput: current.chineseOutput,
       voiceActivityDetection: current.voiceActivityDetection,
       longformChunking: current.longformChunking,
+      vocabulary: current.vocabulary,
     }),
     (settings) => {
       chosen = settings;

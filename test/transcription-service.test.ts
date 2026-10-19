@@ -61,6 +61,7 @@ function settings(modelPath: string, modelId = "nemotron-3.5-asr-streaming-0.6b"
     microphone: { type: "system-default" },
     voiceActivityDetection: true,
     longformChunking: true,
+    vocabulary: { cacheCapacity: 128, recordingLimit: 64, extractionLimit: 64 },
     model: { source: "catalog", id: modelId, path: modelPath },
   };
 }

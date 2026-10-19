@@ -9,6 +9,8 @@ import { autoLanguagePolicy } from "./language-detection-policy.js";
 import { DEFAULT_SHORTCUT, normalizeShortcut } from "./shortcut-core.js";
 import { legacySettingsPath, settingsPath } from "./settings-path.js";
 
+import { parseVocabularySettings, type VocabularySettings } from "./vocabulary-settings.js";
+
 const SETTINGS_VERSION = 1;
 
 export type MicrophoneSetting =
@@ -42,6 +44,7 @@ export type TranscribeSettings = {
   voiceActivityDetection: boolean;
   /** Hidden, settings.json only: false decodes long audio in one piece, without voice activity cuts. */
   longformChunking: boolean;
+  vocabulary: VocabularySettings;
   model: {
     source: "catalog";
     id: string;
@@ -149,6 +152,7 @@ function validateSettings(value: unknown): TranscribeSettings | undefined {
     microphone,
     voiceActivityDetection: value.voiceActivityDetection !== false,
     longformChunking: value.longformChunking !== false,
+    vocabulary: parseVocabularySettings(value.vocabulary).settings,
     model: {
       source: "catalog",
       id: value.model.id,
@@ -161,9 +165,9 @@ async function readSettingsFile(path: string): Promise<SettingsReadResult> {
   try {
     const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
     const settings = validateSettings(parsed);
-    return settings
-      ? { settings }
-      : { warning: `Invalid settings in ${path}; configuration is required.` };
+    if (!settings) return { warning: `Invalid settings in ${path}; configuration is required.` };
+    const warning = parseVocabularySettings(isObject(parsed) ? parsed.vocabulary : undefined).warning;
+    return warning ? { settings, warning } : { settings };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
     return {
@@ -186,7 +190,7 @@ export async function readSettings(): Promise<SettingsReadResult> {
     await unlink(legacyPath).catch((error: NodeJS.ErrnoException) => {
       if (error.code !== "ENOENT") throw error;
     });
-    return { settings: legacy.settings };
+    return legacy;
   } catch (error) {
     return {
       settings: legacy.settings,
@@ -217,6 +221,7 @@ type ModelSettingsOptions = {
   microphone?: MicrophoneSetting;
   voiceActivityDetection?: boolean;
   longformChunking?: boolean;
+  vocabulary?: VocabularySettings;
 };
 
 export function settingsForModel(
@@ -243,6 +248,7 @@ export function settingsForModel(
     microphone: { ...(options.microphone ?? DEFAULT_MICROPHONE) },
     voiceActivityDetection: options.voiceActivityDetection ?? true,
     longformChunking: options.longformChunking ?? true,
+    vocabulary: parseVocabularySettings(options.vocabulary).settings,
     model: { source: "catalog", id: modelId, path: modelPath },
   };
 }
