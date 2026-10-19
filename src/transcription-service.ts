@@ -17,6 +17,7 @@ import {
 } from "./language-detection-policy.js";
 import { describeError, log } from "./log.js";
 import type { TranscribeSettings } from "./settings.js";
+import type { VoiceContextMessage } from "./conversation-context.js";
 import type {
   DictationStream,
   TranscribeCppBackend,
@@ -49,6 +50,7 @@ type TranscriptionJob = {
 
 type ReservationState = {
   vocabulary: readonly string[];
+  context: readonly VoiceContextMessage[];
   settings: TranscribeSettings;
   policy: AutoLanguagePolicy;
   accepting: boolean;
@@ -106,9 +108,11 @@ function transcriptionOptions(
   language: string | undefined,
   signal?: AbortSignal,
   vocabulary?: readonly string[],
+  context?: readonly VoiceContextMessage[],
 ): TranscriptionOptions {
   return {
     ...(vocabulary?.length ? { vocabulary } : {}),
+    ...(context?.length ? { context } : {}),
     signal,
     language,
     chineseOutput: settings.chineseOutput,
@@ -153,13 +157,14 @@ export class TranscriptionService {
     private readonly scoreClip?: ClipScorer,
   ) {}
 
-  reserveDictation(settings: TranscribeSettings, vocabulary: readonly string[] = []): DictationReservation {
+  reserveDictation(settings: TranscribeSettings, vocabulary: readonly string[] = [], context: readonly VoiceContextMessage[] = []): DictationReservation {
     if (this.shuttingDown) throw new Error("Pi Voice is shutting down");
     if (this.reservation) throw new Error("A dictation reservation is already active");
 
     const policy = settingsLanguagePolicy(settings);
     const state: ReservationState = {
       vocabulary: [...vocabulary],
+      context: structuredClone(context),
       settings,
       policy,
       accepting: true,
@@ -433,7 +438,7 @@ export class TranscriptionService {
     if (chunksTranscription(state.settings)) {
       // Only buffers until a chunk is due, so a take that already ended still uses it.
       const abort = new AbortController();
-      const decoder = this.takeDecoder(backend, state.settings, state.policy, this.withShutdown(abort.signal), state.vocabulary);
+      const decoder = this.takeDecoder(backend, state.settings, state.policy, this.withShutdown(abort.signal), state.vocabulary, state.context);
       const stream = new ChunkedDictationStream(decoder.decode, () => abort.abort(cancellationError(state)));
       state.chunked = { stream, decoder };
       state.stream = stream;
@@ -443,7 +448,7 @@ export class TranscriptionService {
       // stream and use the batch path.
       try {
         const stream = await backend.startStream(
-          transcriptionOptions(state.settings, fixedLanguage(state.policy), undefined, state.vocabulary),
+          transcriptionOptions(state.settings, fixedLanguage(state.policy), undefined, state.vocabulary, state.context),
         );
         if (stream && state.submitted) {
           stream.reset();
@@ -519,6 +524,7 @@ export class TranscriptionService {
         pcm,
         this.withShutdown(state.signal),
         state.vocabulary,
+        state.context,
       ));
     } catch (error) {
       this.resetStream(state);
@@ -542,9 +548,10 @@ export class TranscriptionService {
     pcm: Float32Array,
     signal: AbortSignal,
     vocabulary?: readonly string[],
+    context?: readonly VoiceContextMessage[],
   ): Promise<Transcript> {
     signal.throwIfAborted();
-    const decoder = this.takeDecoder(backend, settings, policy, signal, vocabulary);
+    const decoder = this.takeDecoder(backend, settings, policy, signal, vocabulary, context);
     let text: string;
     if (chunksTranscription(settings) && pcm.length > MAX_CHUNK_SAMPLES) {
       const transcriber = new ChunkedTranscriber(decoder.decode);
@@ -582,6 +589,7 @@ export class TranscriptionService {
     policy: AutoLanguagePolicy,
     signal: AbortSignal,
     vocabulary?: readonly string[],
+    context?: readonly VoiceContextMessage[],
   ): TakeDecoder {
     let choice: Promise<{ language?: string; warning?: string }> | undefined;
     let warning: string | undefined;
@@ -591,7 +599,7 @@ export class TranscriptionService {
         const chosen = await (choice ??= this.chooseLanguage(settings, policy, clip, signal));
         warning = chosen.warning;
         signal.throwIfAborted();
-        return backend.transcribe(chunk, transcriptionOptions(settings, chosen.language, signal, vocabulary));
+        return backend.transcribe(chunk, transcriptionOptions(settings, chosen.language, signal, vocabulary, context));
       },
       get warning() { return warning; },
     };

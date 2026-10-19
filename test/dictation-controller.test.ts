@@ -13,12 +13,14 @@ for (const prewarm of [false, true]) {
   test(`controller passes vocabulary when reserving (prewarm=${prewarm})`, async (t) => {
     const service = fakeDictationService();
     const received: Array<readonly string[] | undefined> = [];
+    const context = [{ role: "user", content: "Dolt stores versioned data." }];
     const controller = new DictationController({
-      reserveDictation(_settings, vocabulary) {
+      reserveDictation(_settings, vocabulary, reference) {
         received.push(vocabulary);
+        assert.equal(reference, context);
         return service.reserveDictation();
       },
-    }, { openCapture: new FakeMicrophone().open, vocabulary: ["Dolt"] });
+    }, { openCapture: new FakeMicrophone().open, vocabulary: ["Dolt"], context });
     t.after(() => controller.dispose());
     if (prewarm) controller.prepare(settings);
     await controller.start(settings);

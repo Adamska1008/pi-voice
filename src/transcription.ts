@@ -9,9 +9,11 @@ import type {
 import { convertChineseOutput, shouldConvertChinese } from "./chinese.js";
 import { describeError, log, writeLog, type LogLevel } from "./log.js";
 import type { ChineseOutput } from "./settings.js";
+import { buildRecentVoiceContext, type VoiceContextMessage } from "./conversation-context.js";
 
 export type TranscriptionOptions = {
   vocabulary?: readonly string[];
+  context?: readonly VoiceContextMessage[];
   signal?: AbortSignal;
   language?: string;
   chineseOutput?: ChineseOutput;
@@ -138,6 +140,7 @@ function cpuFallbackDevice(runtime: TranscribeCppRuntime): BackendInfo | undefin
  */
 export class TranscribeCppBackend {
   private vocabularyWarned = false;
+  private readonly prompts = new WeakMap<readonly VoiceContextMessage[], string>();
   private model: TranscribeModel | undefined;
   private loading: Promise<TranscribeModel> | undefined;
   private disposed = false;
@@ -192,6 +195,16 @@ export class TranscribeCppBackend {
     return {};
   }
 
+  private contextOptions(context?: readonly VoiceContextMessage[]): { prompt?: string } {
+    if (!context?.length || !this.model!.supports("context_prompt")) return {};
+    let prompt = this.prompts.get(context);
+    if (prompt === undefined) {
+      prompt = buildRecentVoiceContext(context, text => this.model!.tokenize(text).length, 1024);
+      this.prompts.set(context, prompt);
+    }
+    return prompt ? { prompt } : {};
+  }
+
   async startStream(
     options: TranscriptionOptions = {},
   ): Promise<DictationStream | undefined> {
@@ -205,6 +218,7 @@ export class TranscribeCppBackend {
     try {
       const stream = await session.stream({
         ...this.vocabularyOptions(options.vocabulary),
+        ...this.contextOptions(options.context),
         timestamps: "none",
         ...(options.language ? { language: options.language } : {}),
       });
@@ -230,6 +244,7 @@ export class TranscribeCppBackend {
 
     const result = await model.transcribe(pcm, {
       ...this.vocabularyOptions(options.vocabulary),
+      ...this.contextOptions(options.context),
       signal: options.signal,
       timestamps: "none",
       ...(options.language ? { language: options.language } : {}),

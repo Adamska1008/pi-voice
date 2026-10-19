@@ -3,6 +3,7 @@ import { describeError, log, logStep, sinceKeyPress } from "./log.js";
 import { PcmChunker } from "./pcm-chunker.js";
 import type { MicrophoneSetting, TranscribeSettings } from "./settings.js";
 import type { DictationReservation, TranscriptionService } from "./transcription-service.js";
+import type { VoiceContextMessage } from "./conversation-context.js";
 
 /** What a recording captured. `interruption` is why it ended early, if it did. */
 export type CapturedAudio = { pcm: Float32Array; interruption?: Error; droppedFrames?: number };
@@ -45,6 +46,7 @@ export type DictationState =
   | { phase: "error"; stage: "model" | "capture" | "transcription"; cause: unknown };
 export type DictationControllerOptions = {
   vocabulary?: readonly string[];
+  context?: readonly VoiceContextMessage[];
   openCapture: OpenCapture;
   now?: () => number;
   onChange?: (state: DictationState) => void;
@@ -113,7 +115,7 @@ export class DictationController {
     const reservedAt = this.now();
     let reservation: DictationReservation;
     try {
-      reservation = this.service.reserveDictation(settings, this.options.vocabulary);
+      reservation = this.service.reserveDictation(settings, this.options.vocabulary, this.options.context);
     } catch (cause) {
       this.readiness = "failed";
       this.setState({ phase: "error", stage: "model", cause });

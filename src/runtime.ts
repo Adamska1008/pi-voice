@@ -17,6 +17,7 @@ import { TranscriptionService } from "./transcription-service.js";
 import { VoiceActivityDetection } from "./vad.js";
 import { readDictationVocabulary } from "./vocabulary.js";
 import type { RecordingMeter } from "./visualizer.js";
+import { conversationProse } from "./conversation-context.js";
 
 type ActiveRecording = {
   dictation: DictationController;
@@ -332,6 +333,12 @@ export function createPiVoiceRuntime(
     ctx: ExtensionContext,
     configured: TranscribeSettings,
   ): Promise<void> {
+    const context = ctx.sessionManager.getBranch().slice(-80).flatMap(entry => {
+      if (entry.type !== "message") return [];
+      const message = entry.message;
+      if (message.role !== "user" && !(message.role === "assistant" && ["stop", "toolUse"].includes(message.stopReason))) return [];
+      return [{ role: message.role, content: conversationProse(message), stopReason: "stop" }];
+    });
     logStep("loading audio module");
     const { microphonePermission, openMicrophone } = await loadAudio();
     if (process.platform === "darwin") {
@@ -354,6 +361,7 @@ export function createPiVoiceRuntime(
     const meter = new RecordingMeter();
     const controller = new DictationController(transcriptionService, {
       vocabulary: vocabulary.terms,
+      context,
       openCapture: openMicrophone,
       onAudio: (chunk) => meter.push(chunk),
       onChange: updateMeter,

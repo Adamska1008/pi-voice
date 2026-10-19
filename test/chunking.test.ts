@@ -155,18 +155,20 @@ const canary = settingsForModel("canary-1b-v2", "/mock/canary.gguf", {
 function chunkedService(score?: (pcm: Float32Array) => Promise<number[]>) {
   const decoded: number[] = [];
   const vocabularies: Array<readonly string[] | undefined> = [];
+  const contexts: TranscriptionOptions["context"][] = [];
   const service = new TranscriptionService(() => ({
     async prepare() {},
     async startStream() { throw new Error("chunked models never open a native stream"); },
     async transcribe(pcm: Float32Array, options: TranscriptionOptions = {}) {
       assert.equal(options.language, "en");
       vocabularies.push(options.vocabulary);
+      contexts.push(options.context);
       decoded.push(pcm.length);
       return `part${decoded.length}`;
     },
     async dispose() {},
   }), score && ((pcm) => score(pcm)));
-  return { service, decoded, vocabularies };
+  return { service, decoded, vocabularies, contexts };
 }
 
 test("long files are scored once and decoded in chunks", async (t) => {
@@ -196,7 +198,9 @@ test("live dictation decodes chunks while recording, using the gate's probabilit
   t.after(() => h.service.shutdown());
   const { pcm, probs } = longClip();
   const terms = ["Dolt"];
-  const reservation = h.service.reserveDictation(canary, terms);
+  const context = [{ role: "user", content: "Dolt stores versioned data." }];
+  const reservation = h.service.reserveDictation(canary, terms, context);
+  context[0]!.content = "Changed after recording started";
   terms[0] = "LanceDB";
   await reservation.ready;
   for (let at = 0; at < pcm.length; at += 8 * FRAME) {
@@ -206,6 +210,10 @@ test("live dictation decodes chunks while recording, using the gate's probabilit
   while (h.decoded.length < 2) await nextTurn();
   assert.deepEqual(await reservation.submit(pcm), { text: "part1 part2 part3 part4" });
   assert.deepEqual(h.vocabularies, Array.from({ length: 4 }, () => ["Dolt"]));
+  for (const value of h.contexts) {
+    assert.deepEqual(value, [{ role: "user", content: "Dolt stores versioned data." }]);
+    assert.equal(value, h.contexts[0]);
+  }
 });
 
 test("a stream fallback waits for a live chunk still decoding before reusing the model", async (t) => {

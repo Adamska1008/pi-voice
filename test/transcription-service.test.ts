@@ -14,9 +14,11 @@ const text = async (transcript: Promise<{ text: string }>) => (await transcript)
 for (const failStream of [false, true]) {
   test(`dictation snapshots vocabulary across stream and fallback (failure=${failStream})`, async (t) => {
     const calls: Array<readonly string[] | undefined> = [];
+    const contexts: TranscriptionOptions["context"][] = [];
     const service = createTestService({
       async startStream(options) {
         calls.push(options?.vocabulary);
+        contexts.push(options?.context);
         return createTestStream({ async finalize() {
           if (failStream) throw new Error("stream failed");
           return "Dolt";
@@ -24,20 +26,26 @@ for (const failStream of [false, true]) {
       },
       async transcribe(_samples, options) {
         calls.push(options?.vocabulary);
+        contexts.push(options?.context);
         return "Dolt";
       },
     });
     t.after(() => service.shutdown());
     const automatic = ["LanceDB"];
     const terms = [...mergeVocabulary(["Dolt"], automatic)];
-    const reservation = service.reserveDictation(settings("model"), terms);
+    const context = [{ role: "user", content: [{ type: "text", text: "Dolt stores versioned data." }] }];
+    const expected = structuredClone(context);
+    const reservation = service.reserveDictation(settings("model"), terms, context);
+    context[0]!.content[0]!.text = "Later conversation";
     terms[0] = "changed manual";
     automatic[0] = "DuckDB";
     await reservation.ready;
     assert.equal(await text(reservation.submit(pcm(1))), "Dolt");
     assert.deepEqual(calls, failStream ? [["Dolt", "LanceDB"], ["Dolt", "LanceDB"]] : [["Dolt", "LanceDB"]]);
+    for (const value of contexts) { assert.deepEqual(value, expected); assert.equal(value, contexts[0]); }
     await service.transcribeFile(settings("model"), pcm(2));
     assert.equal(calls.at(-1), undefined, "file jobs do not inherit dictation vocabulary");
+    assert.equal(contexts.at(-1), undefined, "file jobs do not inherit conversation context");
   });
 }
 

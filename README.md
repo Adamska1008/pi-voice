@@ -98,6 +98,10 @@ Before recording, `/voice` merges the latest completed automatic terms with the 
 Manual terms keep priority and order; exact duplicates are removed and automatic terms only fill remaining capacity (64 terms / 4096 UTF-16 units).
 The merged snapshot stays fixed across all chunks and fallback decoding; later extraction results apply to the next recording.
 Missing or invalid manual files still permit automatic terms; invalid files retain their warning. File transcription remains unaffected.
+Dictation also snapshots recent user/assistant prose from the current branch when recording starts (last 80 session entries).
+Models supporting `context_prompt` receive it alongside vocabulary; code blocks, tool output, thinking and failed replies are excluded.
+The loaded ASR model's tokenizer bounds the reference prompt to 1024 tokens, separately from vocabulary and model formatting overhead.
+One prepared prompt is reused for every chunk, native stream and fallback in that recording. Unsupported models omit it; file jobs receive none.
 Reload Pi with `/reload` to activate these handlers. No extraction results or conversation text are written to the repository.
 
 ## Developing & Building Pi Voice

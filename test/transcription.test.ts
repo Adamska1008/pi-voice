@@ -42,6 +42,43 @@ test("vocabulary reaches native batch and stream calls only when supported and n
 
 class TestOutOfMemory extends Error {}
 
+test("reference prompt uses the model tokenizer once per snapshot and reaches stream and batch", async t => {
+  for (const supported of [true, false]) {
+    const calls: TranscribeOptions[] = [];
+    let tokenizations = 0;
+    const model = {
+      capabilities: { languages: ["en"], supportsStreaming: true },
+      supports: (feature: string) => feature === "vocabulary" || (feature === "context_prompt" && supported),
+      tokenize: (text: string) => { tokenizations++; return new Int32Array(Array.from(text).length * 3); },
+      async transcribe(_pcm: Float32Array, options: TranscribeOptions) {
+        calls.push(options); return { text: "Dolt", language: "en" };
+      },
+      createSession: () => ({
+        async stream(options: TranscribeOptions) { calls.push(options); return { reset() {} }; }, dispose() {},
+      }), dispose() {},
+    } as unknown as TranscribeModel;
+    const backend = new TranscribeCppBackend("test", async () => runtime({ load: async () => model }));
+    t.after(() => backend.dispose());
+    const options = { vocabulary: ["Dolt"], context: [{ role: "user", content: "Dolt。" + "中间内容。".repeat(500) + "不要修改。" }] };
+    await backend.transcribe(Float32Array.of(1), options);
+    const counted = tokenizations;
+    (await backend.startStream(options))!.reset();
+    assert.equal(tokenizations, counted, "stream reuses the exact same prepared prompt");
+    assert.equal(calls[0]!.prompt, calls[1]!.prompt);
+    assert.deepEqual(calls[0]!.vocabulary, ["Dolt"]);
+    if (supported) {
+      assert.ok(Array.from(calls[0]!.prompt!).length * 3 <= 1024);
+      assert.match(calls[0]!.prompt!, /Dolt/);
+      assert.match(calls[0]!.prompt!, /不要修改/);
+    } else {
+      assert.equal(counted, 0);
+      assert.equal(calls[0]!.prompt, undefined);
+    }
+    await backend.transcribe(Float32Array.of(1));
+    assert.equal(calls[2]!.prompt, undefined, "unrelated transcription does not inherit context");
+  }
+});
+
 const accelerator: BackendInfo = {
   name: "Vulkan0",
   description: "Test GPU",
