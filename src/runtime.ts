@@ -15,7 +15,7 @@ import type { TranscribeSettings } from "./settings.js";
 import { displayShortcut } from "./shortcut-core.js";
 import { TranscriptionService } from "./transcription-service.js";
 import { VoiceActivityDetection } from "./vad.js";
-import { readProjectVocabulary } from "./vocabulary.js";
+import { readDictationVocabulary } from "./vocabulary.js";
 import type { RecordingMeter } from "./visualizer.js";
 
 type ActiveRecording = {
@@ -54,6 +54,7 @@ function transcriptionErrorMessage(error: unknown): string {
 export function createPiVoiceRuntime(
   pi: ExtensionAPI,
   registeredShortcut: string,
+  getAutomaticVocabulary: () => readonly string[] = () => [],
 ): PiVoiceRuntime {
   let recording: ActiveRecording | undefined;
   let operation: Promise<void> | undefined;
@@ -347,7 +348,7 @@ export function createPiVoiceRuntime(
       }
     }
     const { RecordingMeter } = await loadVisualizer();
-    const vocabulary = await readProjectVocabulary(ctx.cwd);
+    const vocabulary = await readDictationVocabulary(ctx.cwd, getAutomaticVocabulary);
     if (shuttingDown) return;
     if (vocabulary.warning) ctx.ui.notify(vocabulary.warning, "warning");
     const meter = new RecordingMeter();

@@ -2,6 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { extractVocabulary, registerVocabularyBackground } from "../src/vocabulary-background.js";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { readDictationVocabulary } from "../src/vocabulary.js";
+import { DictationController } from "../src/dictation-controller.js";
+import { settingsForModel } from "../src/settings.js";
+import { FakeMicrophone, fakeDictationService } from "./dictation-helper.js";
 
 function fixture() {
   const handlers = new Map<string, Function>();
@@ -92,4 +99,27 @@ test("long Chinese conversation is byte-bounded before dispatch", async () => {
   assert.ok(Buffer.byteLength(input, "utf8") <= 1024);
   assert.ok(input.includes("Qwen3-ASR"));
   f.emit("session_shutdown");
+});
+
+test("extracted vocabulary reaches dictation and a branch reset only affects future snapshots", async t => {
+  const root = await mkdtemp(join(tmpdir(), "pi-voice-background-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const f = fixture();
+  t.after(() => f.emit("session_shutdown"));
+  f.user("Use Qwen3-ASR"); f.emit("agent_settled"); await flush();
+  const snapshot = await readDictationVocabulary(root, f.getTerms);
+  const service = fakeDictationService();
+  const received: Array<readonly string[] | undefined> = [];
+  const controller = new DictationController({
+    reserveDictation(_settings, vocabulary) {
+      received.push(vocabulary);
+      return service.reserveDictation();
+    },
+  }, { openCapture: new FakeMicrophone().open, vocabulary: snapshot.terms });
+  t.after(() => controller.dispose());
+  await controller.start(settingsForModel("parakeet-unified-en-0.6b", "/tmp/test-model"));
+  f.emit("session_tree");
+  assert.deepEqual(received, [["Qwen3-ASR"]]);
+  assert.deepEqual(snapshot.terms, ["Qwen3-ASR"]);
+  assert.deepEqual((await readDictationVocabulary(root, f.getTerms)).terms, []);
 });

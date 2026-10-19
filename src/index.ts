@@ -20,7 +20,7 @@ import { registerVocabularyBackground } from "./vocabulary-background.js";
 // Pi awaits extension module evaluation before continuing startup. Keep this
 // entry point registration-only and load feature implementations on first use.
 export default function piVoice(pi: ExtensionAPI): void {
-  registerVocabularyBackground(pi);
+  const getAutomaticVocabulary = registerVocabularyBackground(pi);
   // Opens nothing yet: the first line written creates the file.
   initLog({ path: logPath(), level: process.env.PI_VOICE_DEBUG === "1" ? "debug" : "info" });
   const registeredShortcut = readShortcutForRegistration();
@@ -35,7 +35,7 @@ export default function piVoice(pi: ExtensionAPI): void {
     logStep("loading runtime");
     const loading = import("./runtime.js").then(({ createPiVoiceRuntime }) => {
       log.debug(`runtime loaded in ${Math.round(performance.now() - loadStarted)} ms`);
-      return createPiVoiceRuntime(pi, registeredShortcut);
+      return createPiVoiceRuntime(pi, registeredShortcut, getAutomaticVocabulary);
     });
     runtimePromise = loading;
     void loading.catch(() => {

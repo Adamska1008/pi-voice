@@ -7,6 +7,7 @@ import type {
   TranscriptionOptions,
 } from "../src/transcription.js";
 import { deferred, nextTurn } from "./helpers.js";
+import { mergeVocabulary } from "../src/vocabulary.js";
 
 const text = async (transcript: Promise<{ text: string }>) => (await transcript).text;
 
@@ -27,12 +28,14 @@ for (const failStream of [false, true]) {
       },
     });
     t.after(() => service.shutdown());
-    const terms = ["Dolt"];
+    const automatic = ["LanceDB"];
+    const terms = [...mergeVocabulary(["Dolt"], automatic)];
     const reservation = service.reserveDictation(settings("model"), terms);
-    terms[0] = "LanceDB";
+    terms[0] = "changed manual";
+    automatic[0] = "DuckDB";
     await reservation.ready;
     assert.equal(await text(reservation.submit(pcm(1))), "Dolt");
-    assert.deepEqual(calls, failStream ? [["Dolt"], ["Dolt"]] : [["Dolt"]]);
+    assert.deepEqual(calls, failStream ? [["Dolt", "LanceDB"], ["Dolt", "LanceDB"]] : [["Dolt", "LanceDB"]]);
     await service.transcribeFile(settings("model"), pcm(2));
     assert.equal(calls.at(-1), undefined, "file jobs do not inherit dictation vocabulary");
   });

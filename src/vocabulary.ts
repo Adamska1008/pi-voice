@@ -9,6 +9,30 @@ export type VocabularySnapshot = {
   warning?: string;
 };
 
+/** Manual terms have already passed file validation; automatic terms fill spare capacity. */
+export function mergeVocabulary(manual: readonly string[], automatic: readonly string[]): readonly string[] {
+  const terms = [...manual];
+  const seen = new Set(terms);
+  let characters = terms.reduce((total, term) => total + term.length, 0);
+  for (const term of automatic) {
+    if (terms.length >= MAX_VOCABULARY_TERMS) break;
+    if (!term.trim() || seen.has(term) || characters + term.length > MAX_VOCABULARY_CHARACTERS) continue;
+    terms.push(term);
+    seen.add(term);
+    characters += term.length;
+  }
+  return Object.freeze(terms);
+}
+
+/** Take one immutable snapshot; never await an in-flight background extraction. */
+export async function readDictationVocabulary(
+  projectDirectory: string,
+  getAutomatic: () => readonly string[],
+): Promise<VocabularySnapshot> {
+  const manual = await readProjectVocabulary(projectDirectory);
+  return { ...manual, terms: mergeVocabulary(manual.terms, getAutomatic()) };
+}
+
 /** Read only this project's file; each call returns a fresh snapshot. */
 export async function readProjectVocabulary(projectDirectory: string): Promise<VocabularySnapshot> {
   const path = join(projectDirectory, ".pi", "voice-vocabulary.json");

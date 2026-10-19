@@ -81,7 +81,7 @@ models ignore them with a log warning. Terms are hints, not guaranteed spellings
 ```
 
 It trims entries, removes empty entries and exact duplicates, and preserves case
-and order. Each read returns a fresh snapshot. Missing files mean no vocabulary;
+and order. Each read returns a fresh snapshot. Missing files mean no manual vocabulary;
 invalid or unreadable files return an empty list and a warning for the caller.
 The MVP limits are 64 distinct terms and 4096 UTF-16 code units across terms
 after normalization; oversized lists are rejected, not silently truncated.
@@ -91,7 +91,10 @@ Background extraction now sends filtered recent conversation to Pi's selected te
 It runs initially, then after two new user turns, with a 30-second cooldown, input deduplication and one request at a time.
 This is an additional model request and may consume quota. Input is capped at 1024 UTF-8 bytes (not tokens); output at 512 tokens.
 Up to 32 terms present verbatim in the input are cached only in memory; session/branch changes clear them and abort pending work.
-Automatic terms are not yet connected to dictation. The manual vocabulary remains the only vocabulary sent to ASR.
+Before recording, `/voice` merges the latest completed automatic terms with the manual vocabulary, without waiting for extraction.
+Manual terms keep priority and order; exact duplicates are removed and automatic terms only fill remaining capacity (64 terms / 4096 UTF-16 units).
+The merged snapshot stays fixed across all chunks and fallback decoding; later extraction results apply to the next recording.
+Missing or invalid manual files still permit automatic terms; invalid files retain their warning. File transcription remains unaffected.
 Reload Pi with `/reload` to activate these handlers. No extraction results or conversation text are written to the repository.
 
 ## Developing & Building Pi Voice

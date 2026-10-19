@@ -6,6 +6,8 @@ import { test, type TestContext } from "node:test";
 import {
   MAX_VOCABULARY_CHARACTERS,
   MAX_VOCABULARY_TERMS,
+  mergeVocabulary,
+  readDictationVocabulary,
   readProjectVocabulary,
 } from "../src/vocabulary.js";
 
@@ -73,4 +75,47 @@ test("snapshots stay independent across edits and project changes", async (t) =>
   assert.deepEqual((await readProjectVocabulary(first.root)).terms, ["LanceDB"]);
   assert.deepEqual(await readProjectVocabulary(second.root), { terms: [] });
   assert.deepEqual(snapshot.terms, ["Dolt"]);
+});
+
+test("manual vocabulary keeps its order and spelling; automatic terms fill remaining slots", () => {
+  assert.deepEqual(mergeVocabulary(["Dolt", "dolt"], ["Dolt", "Qwen3-ASR", "Qwen3-ASR", ""]),
+    ["Dolt", "dolt", "Qwen3-ASR"]);
+  const manual = Array.from({ length: MAX_VOCABULARY_TERMS - 1 }, (_, i) => `manual${i}`);
+  assert.deepEqual(mergeVocabulary(manual, ["extra", "overflow"]), [...manual, "extra"]);
+  manual.push("lastManual");
+  assert.deepEqual(mergeVocabulary(manual, ["extra"]), manual);
+});
+
+test("automatic terms never displace manual terms to fit the character budget", () => {
+  const manual = ["a".repeat(MAX_VOCABULARY_CHARACTERS - 4)];
+  assert.deepEqual(mergeVocabulary(manual, ["too-long", "😀", "Pi", "extra"]), [...manual, "😀", "Pi"]);
+  assert.deepEqual(mergeVocabulary(["a".repeat(MAX_VOCABULARY_CHARACTERS)], ["Pi"]),
+    ["a".repeat(MAX_VOCABULARY_CHARACTERS)]);
+});
+
+test("each recording snapshots the latest completed automatic vocabulary exactly once", async t => {
+  const { root, path } = await project(t);
+  await writeFile(path, '{"terms":["Dolt"]}');
+  let automatic = ["LanceDB"];
+  let reads = 0;
+  const getAutomatic = () => { reads++; return automatic; };
+  const first = await readDictationVocabulary(root, getAutomatic);
+  automatic[0] = "DuckDB";
+  const second = await readDictationVocabulary(root, getAutomatic);
+  automatic = []; // Session reset must affect the next recording, not an existing one.
+  const third = await readDictationVocabulary(root, getAutomatic);
+  assert.deepEqual(first.terms, ["Dolt", "LanceDB"]);
+  assert.deepEqual(second.terms, ["Dolt", "DuckDB"]);
+  assert.deepEqual(third.terms, ["Dolt"]);
+  assert.ok(Object.isFrozen(first.terms));
+  assert.equal(reads, 3);
+});
+
+test("missing or invalid manual files still permit automatic terms, preserving warnings", async t => {
+  const { root, path } = await project(t);
+  assert.deepEqual(await readDictationVocabulary(root, () => ["Qwen3-ASR"]), { terms: ["Qwen3-ASR"] });
+  await writeFile(path, "invalid JSON");
+  const snapshot = await readDictationVocabulary(root, () => ["Qwen3-ASR"]);
+  assert.deepEqual(snapshot.terms, ["Qwen3-ASR"]);
+  assert.match(snapshot.warning!, /expected valid JSON/);
 });
