@@ -44,6 +44,7 @@ export type DictationState =
   | { phase: "result"; result: DictationResult }
   | { phase: "error"; stage: "model" | "capture" | "transcription"; cause: unknown };
 export type DictationControllerOptions = {
+  vocabulary?: readonly string[];
   openCapture: OpenCapture;
   now?: () => number;
   onChange?: (state: DictationState) => void;
@@ -112,7 +113,7 @@ export class DictationController {
     const reservedAt = this.now();
     let reservation: DictationReservation;
     try {
-      reservation = this.service.reserveDictation(settings);
+      reservation = this.service.reserveDictation(settings, this.options.vocabulary);
     } catch (cause) {
       this.readiness = "failed";
       this.setState({ phase: "error", stage: "model", cause });

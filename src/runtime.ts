@@ -15,6 +15,7 @@ import type { TranscribeSettings } from "./settings.js";
 import { displayShortcut } from "./shortcut-core.js";
 import { TranscriptionService } from "./transcription-service.js";
 import { VoiceActivityDetection } from "./vad.js";
+import { readProjectVocabulary } from "./vocabulary.js";
 import type { RecordingMeter } from "./visualizer.js";
 
 type ActiveRecording = {
@@ -346,9 +347,12 @@ export function createPiVoiceRuntime(
       }
     }
     const { RecordingMeter } = await loadVisualizer();
+    const vocabulary = await readProjectVocabulary(ctx.cwd);
     if (shuttingDown) return;
+    if (vocabulary.warning) ctx.ui.notify(vocabulary.warning, "warning");
     const meter = new RecordingMeter();
     const controller = new DictationController(transcriptionService, {
+      vocabulary: vocabulary.terms,
       openCapture: openMicrophone,
       onAudio: (chunk) => meter.push(chunk),
       onChange: updateMeter,

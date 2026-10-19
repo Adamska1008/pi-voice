@@ -1,10 +1,44 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { BackendInfo, ModelOptions, TranscribeModel } from "transcribe-cpp";
+import type { BackendInfo, ModelOptions, TranscribeModel, TranscribeOptions } from "transcribe-cpp";
 import { TranscribeCppBackend } from "../src/transcription.js";
 
 type RuntimeLoader = NonNullable<ConstructorParameters<typeof TranscribeCppBackend>[1]>;
 type TestRuntime = Awaited<ReturnType<RuntimeLoader>>;
+
+test("vocabulary reaches native batch and stream calls only when supported and nonempty", async (t) => {
+  for (const supported of [true, false]) {
+    const calls: TranscribeOptions[] = [];
+    const model = {
+      capabilities: { languages: ["en"], supportsStreaming: true },
+      supports: (feature: string) => feature === "vocabulary" && supported,
+      async transcribe(_pcm: Float32Array, options: TranscribeOptions) {
+        calls.push(options);
+        return { text: "Dolt", language: "en" };
+      },
+      createSession: () => ({
+        async stream(options: TranscribeOptions) {
+          calls.push(options);
+          return { reset() {} };
+        },
+        dispose() {},
+      }),
+      dispose() {},
+    } as unknown as TranscribeModel;
+    const backend = new TranscribeCppBackend("test", async () => runtime({ load: async () => model }));
+    t.after(() => backend.dispose());
+    for (const vocabulary of [["Dolt"], [], undefined]) {
+      const options = { vocabulary, language: "en" };
+      await backend.transcribe(Float32Array.of(1), options);
+      (await backend.startStream(options))!.reset();
+      for (const call of calls.splice(0)) {
+        assert.deepEqual(call.vocabulary, supported && vocabulary?.length ? vocabulary : undefined);
+        assert.equal(call.language, "en");
+        assert.equal(call.timestamps, "none");
+      }
+    }
+  }
+});
 
 class TestOutOfMemory extends Error {}
 

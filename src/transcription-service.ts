@@ -48,6 +48,7 @@ type TranscriptionJob = {
 };
 
 type ReservationState = {
+  vocabulary: readonly string[];
   settings: TranscribeSettings;
   policy: AutoLanguagePolicy;
   accepting: boolean;
@@ -104,8 +105,10 @@ function transcriptionOptions(
   settings: TranscribeSettings,
   language: string | undefined,
   signal?: AbortSignal,
+  vocabulary?: readonly string[],
 ): TranscriptionOptions {
   return {
+    ...(vocabulary?.length ? { vocabulary } : {}),
     signal,
     language,
     chineseOutput: settings.chineseOutput,
@@ -150,12 +153,13 @@ export class TranscriptionService {
     private readonly scoreClip?: ClipScorer,
   ) {}
 
-  reserveDictation(settings: TranscribeSettings): DictationReservation {
+  reserveDictation(settings: TranscribeSettings, vocabulary: readonly string[] = []): DictationReservation {
     if (this.shuttingDown) throw new Error("Pi Voice is shutting down");
     if (this.reservation) throw new Error("A dictation reservation is already active");
 
     const policy = settingsLanguagePolicy(settings);
     const state: ReservationState = {
+      vocabulary: [...vocabulary],
       settings,
       policy,
       accepting: true,
@@ -429,7 +433,7 @@ export class TranscriptionService {
     if (chunksTranscription(state.settings)) {
       // Only buffers until a chunk is due, so a take that already ended still uses it.
       const abort = new AbortController();
-      const decoder = this.takeDecoder(backend, state.settings, state.policy, this.withShutdown(abort.signal));
+      const decoder = this.takeDecoder(backend, state.settings, state.policy, this.withShutdown(abort.signal), state.vocabulary);
       const stream = new ChunkedDictationStream(decoder.decode, () => abort.abort(cancellationError(state)));
       state.chunked = { stream, decoder };
       state.stream = stream;
@@ -439,7 +443,7 @@ export class TranscriptionService {
       // stream and use the batch path.
       try {
         const stream = await backend.startStream(
-          transcriptionOptions(state.settings, fixedLanguage(state.policy)),
+          transcriptionOptions(state.settings, fixedLanguage(state.policy), undefined, state.vocabulary),
         );
         if (stream && state.submitted) {
           stream.reset();
@@ -514,6 +518,7 @@ export class TranscriptionService {
         state.policy,
         pcm,
         this.withShutdown(state.signal),
+        state.vocabulary,
       ));
     } catch (error) {
       this.resetStream(state);
@@ -536,9 +541,10 @@ export class TranscriptionService {
     policy: AutoLanguagePolicy,
     pcm: Float32Array,
     signal: AbortSignal,
+    vocabulary?: readonly string[],
   ): Promise<Transcript> {
     signal.throwIfAborted();
-    const decoder = this.takeDecoder(backend, settings, policy, signal);
+    const decoder = this.takeDecoder(backend, settings, policy, signal, vocabulary);
     let text: string;
     if (chunksTranscription(settings) && pcm.length > MAX_CHUNK_SAMPLES) {
       const transcriber = new ChunkedTranscriber(decoder.decode);
@@ -575,6 +581,7 @@ export class TranscriptionService {
     settings: TranscribeSettings,
     policy: AutoLanguagePolicy,
     signal: AbortSignal,
+    vocabulary?: readonly string[],
   ): TakeDecoder {
     let choice: Promise<{ language?: string; warning?: string }> | undefined;
     let warning: string | undefined;
@@ -584,7 +591,7 @@ export class TranscriptionService {
         const chosen = await (choice ??= this.chooseLanguage(settings, policy, clip, signal));
         warning = chosen.warning;
         signal.throwIfAborted();
-        return backend.transcribe(chunk, transcriptionOptions(settings, chosen.language, signal));
+        return backend.transcribe(chunk, transcriptionOptions(settings, chosen.language, signal, vocabulary));
       },
       get warning() { return warning; },
     };

@@ -10,6 +10,34 @@ import { deferred, nextTurn } from "./helpers.js";
 
 const text = async (transcript: Promise<{ text: string }>) => (await transcript).text;
 
+for (const failStream of [false, true]) {
+  test(`dictation snapshots vocabulary across stream and fallback (failure=${failStream})`, async (t) => {
+    const calls: Array<readonly string[] | undefined> = [];
+    const service = createTestService({
+      async startStream(options) {
+        calls.push(options?.vocabulary);
+        return createTestStream({ async finalize() {
+          if (failStream) throw new Error("stream failed");
+          return "Dolt";
+        } });
+      },
+      async transcribe(_samples, options) {
+        calls.push(options?.vocabulary);
+        return "Dolt";
+      },
+    });
+    t.after(() => service.shutdown());
+    const terms = ["Dolt"];
+    const reservation = service.reserveDictation(settings("model"), terms);
+    terms[0] = "LanceDB";
+    await reservation.ready;
+    assert.equal(await text(reservation.submit(pcm(1))), "Dolt");
+    assert.deepEqual(calls, failStream ? [["Dolt"], ["Dolt"]] : [["Dolt"]]);
+    await service.transcribeFile(settings("model"), pcm(2));
+    assert.equal(calls.at(-1), undefined, "file jobs do not inherit dictation vocabulary");
+  });
+}
+
 // A streaming catalog model with native detection: takes use the backend stream, not chunking.
 function settings(modelPath: string, modelId = "nemotron-3.5-asr-streaming-0.6b"): TranscribeSettings {
   return {

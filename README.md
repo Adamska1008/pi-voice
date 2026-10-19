@@ -68,10 +68,13 @@ The legacy `PI_TRANSCRIBE_FFMPEG_PATH` variable remains supported when `PI_VOICE
 
 When FFmpeg is unavailable, `transcribe_file` reports platform-specific guidance to the agent. The agent should ask before running a package-manager command. Model setup is still explicit: run `/voice-settings` once in the interactive TUI to choose and, after confirmation, download a local model.
 
-## Project vocabulary (preparatory API)
+## Project vocabulary
 
-The vocabulary reader accepts `.pi/voice-vocabulary.json` relative to a supplied
-project directory. It is not yet connected to `/voice` or `transcribe_file`.
+Add `.pi/voice-vocabulary.json` in Pi's current working directory. `/voice` reads
+it before each recording; edits apply to the next recording. All chunks and
+fallback decoding use the same snapshot. `transcribe_file` does not use it.
+Terms are passed to models supporting vocabulary (including Qwen3-ASR); other
+models ignore them with a log warning. Terms are hints, not guaranteed spellings.
 
 ```json
 {"terms": ["Meilisearch", "Dolt", "LanceDB"]}

@@ -11,6 +11,7 @@ import { describeError, log, writeLog, type LogLevel } from "./log.js";
 import type { ChineseOutput } from "./settings.js";
 
 export type TranscriptionOptions = {
+  vocabulary?: readonly string[];
   signal?: AbortSignal;
   language?: string;
   chineseOutput?: ChineseOutput;
@@ -136,6 +137,7 @@ function cpuFallbackDevice(runtime: TranscribeCppRuntime): BackendInfo | undefin
  * detector. Calls must be scheduled sequentially.
  */
 export class TranscribeCppBackend {
+  private vocabularyWarned = false;
   private model: TranscribeModel | undefined;
   private loading: Promise<TranscribeModel> | undefined;
   private disposed = false;
@@ -180,6 +182,16 @@ export class TranscribeCppBackend {
     }
   }
 
+  private vocabularyOptions(terms?: readonly string[]): { vocabulary?: readonly string[] } {
+    if (!terms?.length) return {};
+    if (this.model!.supports("vocabulary")) return { vocabulary: terms };
+    if (!this.vocabularyWarned) {
+      log.warn("This model does not support vocabulary; transcribing without project terms.");
+      this.vocabularyWarned = true;
+    }
+    return {};
+  }
+
   async startStream(
     options: TranscriptionOptions = {},
   ): Promise<DictationStream | undefined> {
@@ -192,6 +204,7 @@ export class TranscribeCppBackend {
     const session = model.createSession();
     try {
       const stream = await session.stream({
+        ...this.vocabularyOptions(options.vocabulary),
         timestamps: "none",
         ...(options.language ? { language: options.language } : {}),
       });
@@ -216,6 +229,7 @@ export class TranscribeCppBackend {
     validateLanguage(model.capabilities, options.language);
 
     const result = await model.transcribe(pcm, {
+      ...this.vocabularyOptions(options.vocabulary),
       signal: options.signal,
       timestamps: "none",
       ...(options.language ? { language: options.language } : {}),

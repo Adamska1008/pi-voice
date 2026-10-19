@@ -9,6 +9,23 @@ import { nextTurn } from "./helpers.js";
 
 const settings = settingsForModel("parakeet-unified-en-0.6b", "/tmp/test-model");
 
+for (const prewarm of [false, true]) {
+  test(`controller passes vocabulary when reserving (prewarm=${prewarm})`, async (t) => {
+    const service = fakeDictationService();
+    const received: Array<readonly string[] | undefined> = [];
+    const controller = new DictationController({
+      reserveDictation(_settings, vocabulary) {
+        received.push(vocabulary);
+        return service.reserveDictation();
+      },
+    }, { openCapture: new FakeMicrophone().open, vocabulary: ["Dolt"] });
+    t.after(() => controller.dispose());
+    if (prewarm) controller.prepare(settings);
+    await controller.start(settings);
+    assert.deepEqual(received, [["Dolt"]]);
+  });
+}
+
 function harness() {
   const service = fakeDictationService();
   const mic = new FakeMicrophone();
