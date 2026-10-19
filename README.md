@@ -68,6 +68,22 @@ The legacy `PI_TRANSCRIBE_FFMPEG_PATH` variable remains supported when `PI_VOICE
 
 When FFmpeg is unavailable, `transcribe_file` reports platform-specific guidance to the agent. The agent should ask before running a package-manager command. Model setup is still explicit: run `/voice-settings` once in the interactive TUI to choose and, after confirmation, download a local model.
 
+## Project vocabulary (preparatory API)
+
+The vocabulary reader accepts `.pi/voice-vocabulary.json` relative to a supplied
+project directory. It is not yet connected to `/voice` or `transcribe_file`.
+
+```json
+{"terms": ["Meilisearch", "Dolt", "LanceDB"]}
+```
+
+It trims entries, removes empty entries and exact duplicates, and preserves case
+and order. Each read returns a fresh snapshot. Missing files mean no vocabulary;
+invalid or unreadable files return an empty list and a warning for the caller.
+The MVP limits are 64 distinct terms and 4096 UTF-16 code units across terms
+after normalization; oversized lists are rejected, not silently truncated.
+These are application limits, not model token budgets.
+
 ## Developing & Building Pi Voice
 
 To develop or run it from a checkout:
