@@ -7,7 +7,7 @@ type Turn = { user: string; assistant: string };
 type TokenCounter = (text: string) => number;
 
 /** Drop fenced blocks, including unfinished ones; keep inline identifiers. */
-function prose(message: VoiceContextMessage): string {
+export function conversationProse(message: VoiceContextMessage): string {
   const text = typeof message.content === "string" ? message.content
     : message.content.filter(part => part.type === "text").map(part => part.text ?? "").join("\n");
   let fence = "";
@@ -57,10 +57,10 @@ export function buildRecentVoiceContext(
   const budget = Math.floor(maxTokens);
   const turns: Turn[] = [];
   for (const message of messages) {
-    if (message.role === "user") turns.push({ user: prose(message), assistant: "" });
+    if (message.role === "user") turns.push({ user: conversationProse(message), assistant: "" });
     else if (message.role === "assistant" && ["stop", "toolUse"].includes(message.stopReason ?? "")) {
       const turn = turns.at(-1);
-      const text = prose(message);
+      const text = conversationProse(message);
       if (turn && text) turn.assistant = [turn.assistant, text].filter(Boolean).join("\n\n");
     }
   }

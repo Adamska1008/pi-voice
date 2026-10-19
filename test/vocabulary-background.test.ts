@@ -35,6 +35,38 @@ function fixture() {
 }
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
+test("known conversation terms refresh without extraction and code blocks do not refresh them", async t => {
+  const f = fixture();
+  t.after(() => f.emit("session_shutdown"));
+  f.setReply(async () => ({ stopReason: "stop", content: [{ type: "text", text: '["Pi","Qwen3-ASR"]' }] }));
+  f.user("Pi");
+  f.messages.push({ role: "assistant", stopReason: "stop", content: "Qwen3-ASR" });
+  f.emit("agent_settled"); await flush();
+  assert.deepEqual(f.getTerms(), ["Qwen3-ASR", "Pi"]);
+  f.user("继续使用Pi");
+  f.messages.push({ role: "assistant", stopReason: "stop", content: "```\nQwen3-ASR\n```" });
+  f.messages.push({ role: "assistant", stopReason: "error", content: "Qwen3-ASR" });
+  f.messages.push({ role: "toolResult", content: "Qwen3-ASR" });
+  f.emit("agent_settled"); await flush();
+  assert.deepEqual(f.getTerms(), ["Pi", "Qwen3-ASR"]);
+  assert.equal(f.calls.length, 1);
+});
+
+test("late extraction uses newer mentions accumulated while the request was running", async t => {
+  const f = fixture();
+  t.after(() => f.emit("session_shutdown"));
+  let finish!: (value: any) => void;
+  f.setReply(() => new Promise(resolve => { finish = resolve; }));
+  f.user("Pi");
+  f.messages.push({ role: "assistant", stopReason: "stop", content: "Qwen3-ASR" });
+  f.emit("agent_settled"); await flush();
+  f.user("继续使用Pi"); f.emit("agent_settled");
+  finish({ stopReason: "stop", content: [{ type: "text", text: '["Pi","Qwen3-ASR"]' }] });
+  await flush();
+  assert.deepEqual(f.getTerms(), ["Pi", "Qwen3-ASR"]);
+  assert.equal(f.calls.length, 1);
+});
+
 test("events start an independent bounded request and cache only source-grounded terms", async () => {
   const f = fixture();
   f.setReply(async () => ({ stopReason: "stop", content: [{ type: "text", text: '["Qwen3-ASR","invented","Qwen3-ASR"]' }] }));
