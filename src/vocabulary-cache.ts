@@ -31,6 +31,7 @@ export class VocabularyCache {
   }
 
   snapshot(): readonly string[] { return Object.freeze(this.ordered().slice(0, 32).map(([term]) => term)); }
+  entries(): [string, number][] { return this.ordered(); }
   clear(): void { this.seen.clear(); }
   private ordered(): [string, number][] {
     return [...this.seen].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));

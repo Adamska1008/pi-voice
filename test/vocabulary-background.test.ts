@@ -18,14 +18,18 @@ function fixture() {
   let reply: () => Promise<any> = async () => ({ stopReason: "stop", content: [{ type: "text", text: '["Qwen3-ASR"]' }] });
   const ctx = {
     model: { provider: "test", id: "selected-model" }, isIdle: () => true,
-    sessionManager: { getBranch: () => messages.map(message => ({ type: "message", message })) },
+    sessionManager: { getBranch: () => messages.map((message, index) => message.type === "custom"
+      ? { ...message, id: `entry${index}` } : { type: "message", id: `entry${index}`, message }) },
     ui: { notify: (text: string) => warnings.push(text) },
     modelRegistry: {
       getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "test-only", headers: { example: "header" } }),
       getProvider: () => ({ streamSimple: (...args: any[]) => { calls.push(args); return { result: reply }; } }),
     },
   } as unknown as ExtensionContext;
-  const getTerms = registerVocabularyBackground({ on: (name: string, fn: Function) => handlers.set(name, fn) } as unknown as ExtensionAPI);
+  const getTerms = registerVocabularyBackground({
+    on: (name: string, fn: Function) => handlers.set(name, fn),
+    appendEntry: (customType: string, data: unknown) => messages.push({ type: "custom", customType, data: structuredClone(data) }),
+  } as unknown as ExtensionAPI);
   const emit = (name: string, event: any = {}) => handlers.get(name)!(event, ctx);
   const user = (content: string) => {
     const message = { role: "user", content };
@@ -150,8 +154,29 @@ test("extracted vocabulary reaches dictation and a branch reset only affects fut
   }, { openCapture: new FakeMicrophone().open, vocabulary: snapshot.terms });
   t.after(() => controller.dispose());
   await controller.start(settingsForModel("parakeet-unified-en-0.6b", "/tmp/test-model"));
+  f.messages.length = 0; // Navigate to an unrelated branch without a saved vocabulary.
   f.emit("session_tree");
   assert.deepEqual(received, [["Qwen3-ASR"]]);
   assert.deepEqual(snapshot.terms, ["Qwen3-ASR"]);
   assert.deepEqual((await readDictationVocabulary(root, f.getTerms)).terms, []);
+});
+
+test("a fresh extension restores saved terms without a model call or duplicate checkpoint", async t => {
+  const first = fixture();
+  first.user("Use Qwen3-ASR"); first.emit("agent_settled"); await flush();
+  const saved = JSON.parse(JSON.stringify(first.messages));
+  assert.equal(saved.filter((entry: any) => entry.type === "custom").length, 1);
+  first.emit("session_shutdown");
+  const resumed = fixture();
+  t.after(() => resumed.emit("session_shutdown"));
+  resumed.messages.push(...saved);
+  resumed.emit("session_start");
+  assert.deepEqual(resumed.getTerms(), ["Qwen3-ASR"]);
+  resumed.emit("agent_settled"); await flush();
+  assert.equal(resumed.calls.length, 0);
+  assert.equal(resumed.messages.length, saved.length);
+  resumed.messages.length = 0; resumed.emit("session_tree");
+  assert.deepEqual(resumed.getTerms(), []);
+  resumed.messages.push(...saved); resumed.emit("session_tree");
+  assert.deepEqual(resumed.getTerms(), ["Qwen3-ASR"]);
 });

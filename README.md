@@ -90,10 +90,13 @@ These are application limits, not model token budgets.
 Background extraction now sends filtered recent conversation to Pi's selected text model after the agent settles.
 It runs initially, then after two new user turns, with a 30-second cooldown, input deduplication and one request at a time.
 This is an additional model request and may consume quota. Input is capped at 1024 UTF-8 bytes (not tokens); output at 512 tokens.
-Automatic conversation terms live in a 64-entry in-memory LRU; up to 32 are offered to each recording, newest mentions first.
+Automatic conversation terms use a 64-entry LRU; up to 32 are offered to each recording, newest mentions first.
 Recency follows actual message positions, not extraction time. Known terms refresh after a settled reply without an extra model call.
 Repeated scans do not make old terms recent; code blocks, tool output and failed replies do not refresh terms. Empty extraction preserves the cache.
-Session/branch changes clear the cache and abort pending work. Manual terms remain independent of automatic eviction.
+Changes save a versioned `pi-voice-vocabulary` custom entry in Pi's session storage, containing terms and source message IDs only.
+Resume, `/reload` and branch navigation restore the latest checkpoint on that branch, preserving recency without a model call.
+These entries are excluded from model context. New sessions start empty; non-persistent Pi sessions retain memory-only behavior.
+Session/branch changes abort pending work. Manual terms remain independent of automatic eviction; the project vocabulary file is never overwritten.
 Before recording, `/voice` merges the latest completed automatic terms with the manual vocabulary, without waiting for extraction.
 Manual terms keep priority and order; exact duplicates are removed and automatic terms only fill remaining capacity (64 terms / 4096 UTF-16 units).
 The merged snapshot stays fixed across all chunks and fallback decoding; later extraction results apply to the next recording.

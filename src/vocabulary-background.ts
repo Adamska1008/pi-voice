@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { buildRecentVoiceContext, conversationProse } from "./conversation-context.js";
 import { VocabularyRefresh } from "./vocabulary-refresh.js";
 import { VocabularyCache, type VocabularyObservation } from "./vocabulary-cache.js";
+import { restoreVocabulary, vocabularyState, VOCABULARY_STATE_TYPE } from "./vocabulary-state.js";
 
 const INSTRUCTIONS = "Extract at most 32 proper names, project names, technical terms and code identifiers "
   + "explicitly present in the conversation. Copy exact spelling. Exclude ordinary words. "
@@ -33,7 +34,7 @@ export async function extractVocabulary(ctx: ExtensionContext, input: string, si
     && term.trim() === term && !/[\r\n]/.test(term) && input.includes(term)).slice(0, 32);
 }
 
-/** Register cheap event handlers; never load the ASR model or persist conversation data. */
+/** Register cheap handlers; persist vocabulary through Pi, without duplicating conversation text. */
 export function registerVocabularyBackground(pi: ExtensionAPI): () => readonly string[] {
   const policy = new VocabularyRefresh();
   const cache = new VocabularyCache();
@@ -42,6 +43,7 @@ export function registerVocabularyBackground(pi: ExtensionAPI): () => readonly s
   let controller: AbortController | undefined;
   let latestContext: ExtensionContext | undefined;
   let closed = false;
+  let saved = JSON.stringify(vocabularyState(cache, []));
   const clearTimer = () => { clearTimeout(timer); timer = undefined; };
   function reset() {
     clearTimer();
@@ -50,6 +52,19 @@ export function registerVocabularyBackground(pi: ExtensionAPI): () => readonly s
     latestObservations = [];
     latestContext = undefined;
     controller?.abort();
+  }
+  function persist(ctx: ExtensionContext) {
+    const state = vocabularyState(cache, ctx.sessionManager.getBranch());
+    const serialized = JSON.stringify(state);
+    if (serialized === saved) return;
+    try { pi.appendEntry(VOCABULARY_STATE_TYPE, state); saved = serialized; }
+    catch { ctx.ui.notify("Could not save voice vocabulary; current terms remain available in memory.", "warning"); }
+  }
+  function restore(ctx: ExtensionContext) {
+    reset();
+    const branch = ctx.sessionManager.getBranch();
+    restoreVocabulary(cache, branch);
+    saved = JSON.stringify(vocabularyState(cache, branch));
   }
   function pump(): void {
     clearTimer();
@@ -68,7 +83,10 @@ export function registerVocabularyBackground(pi: ExtensionAPI): () => readonly s
     timeout.unref();
     const observations = latestObservations;
     void extractVocabulary(ctx, decision.request.input, abort.signal).then(result => {
-      if (policy.complete(decision.request, true)) cache.update(result, [...observations, ...latestObservations]);
+      if (policy.complete(decision.request, true)) {
+        cache.update(result, [...observations, ...latestObservations]);
+        persist(ctx);
+      }
     }).catch(() => {
       policy.complete(decision.request, false);
       if (!abort.signal.aborted) ctx.ui.notify("Voice vocabulary extraction failed; keeping previous terms.", "warning");
@@ -94,13 +112,14 @@ export function registerVocabularyBackground(pi: ExtensionAPI): () => readonly s
       return [{ position: branch.length - recent.length + index, text: conversationProse(message) }];
     });
     cache.update([], latestObservations); // Refresh known terms without another model request.
+    persist(ctx);
     // Extraction uses a separate byte cap, NOT an ASR/model token estimate.
     policy.settled(buildRecentVoiceContext(messages, text => Buffer.byteLength(text, "utf8"), 1024));
     latestContext = ctx;
     pump();
   });
-  pi.on("session_start", () => { reset(); closed = false; });
-  pi.on("session_tree", reset);
+  pi.on("session_start", (_event, ctx) => { restore(ctx); closed = false; });
+  pi.on("session_tree", (_event, ctx) => restore(ctx));
   pi.on("session_shutdown", () => { closed = true; reset(); });
   return () => cache.snapshot();
 }
