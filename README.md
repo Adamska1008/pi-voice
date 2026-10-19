@@ -87,6 +87,13 @@ The MVP limits are 64 distinct terms and 4096 UTF-16 code units across terms
 after normalization; oversized lists are rejected, not silently truncated.
 These are application limits, not model token budgets.
 
+Background extraction now sends filtered recent conversation to Pi's selected text model after the agent settles.
+It runs initially, then after two new user turns, with a 30-second cooldown, input deduplication and one request at a time.
+This is an additional model request and may consume quota. Input is capped at 1024 UTF-8 bytes (not tokens); output at 512 tokens.
+Up to 32 terms present verbatim in the input are cached only in memory; session/branch changes clear them and abort pending work.
+Automatic terms are not yet connected to dictation. The manual vocabulary remains the only vocabulary sent to ASR.
+Reload Pi with `/reload` to activate these handlers. No extraction results or conversation text are written to the repository.
+
 ## Developing & Building Pi Voice
 
 To develop or run it from a checkout:

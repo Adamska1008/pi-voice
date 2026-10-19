@@ -15,10 +15,12 @@ import { displayShortcut, STATUS_WIDGET_KEY } from "./shortcut-core.js";
 import { initLog, log, logStep, markKeyPress, watchEventLoop } from "./log.js";
 import { legacySettingsPath, logPath, settingsPath } from "./settings-path.js";
 import { readShortcutForRegistration } from "./startup-shortcut.js";
+import { registerVocabularyBackground } from "./vocabulary-background.js";
 
 // Pi awaits extension module evaluation before continuing startup. Keep this
 // entry point registration-only and load feature implementations on first use.
 export default function piVoice(pi: ExtensionAPI): void {
+  registerVocabularyBackground(pi);
   // Opens nothing yet: the first line written creates the file.
   initLog({ path: logPath(), level: process.env.PI_VOICE_DEBUG === "1" ? "debug" : "info" });
   const registeredShortcut = readShortcutForRegistration();
