@@ -1,4 +1,4 @@
-import { copyFile, mkdtemp, readdir, rm } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 
@@ -30,6 +30,9 @@ try {
     join(process.cwd(), "src/model-ratings-help.md"),
     join(outputDirectory, "src/model-ratings-help.md"),
   );
+  await mkdir(join(outputDirectory, "models"), { recursive: true });
+  await copyFile(join(process.cwd(), "models/wake-keywords.txt"), join(outputDirectory, "models/wake-keywords.txt"));
+  await copyFile(join(process.cwd(), "src/wake-worker.mjs"), join(outputDirectory, "src/wake-worker.mjs"));
   const testDirectory = join(outputDirectory, "test");
   const testFiles = (await readdir(testDirectory))
     .filter((name) => name.endsWith(".test.js"))
