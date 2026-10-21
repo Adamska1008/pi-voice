@@ -15,6 +15,7 @@
   "files": [
     "src",
     "scripts/setup-wake.mjs",
+    "docs/handsfree.md",
     "index.ts",
     "catalog/catalog.json",
     "catalog/recommendations.json",

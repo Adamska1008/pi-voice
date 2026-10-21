@@ -61,7 +61,7 @@ function interruption(recording: Recording): Error | undefined {
 }
 
 /** Opens the microphone and starts recording 16 kHz mono into `sinks`. */
-export async function openMicrophone(microphone: MicrophoneSetting, sinks: CaptureSinks): Promise<Capture> {
+export async function openMicrophone(microphone: MicrophoneSetting, sinks: CaptureSinks, collect = true): Promise<Capture> {
   let device: InputDevice | undefined;
   if (microphone.type === "device") {
     device = findMicrophone(await listInputDevices(), microphone);
@@ -73,6 +73,7 @@ export async function openMicrophone(microphone: MicrophoneSetting, sinks: Captu
     sampleRate: CAPTURE_SAMPLE_RATE,
     channels: "mono",
     framesPerChunk: CAPTURE_CHUNK_SAMPLES,
+    collect,
     onChunk: ({ samples }) => sinks.onAudio(samples),
     onFailure: (error) => sinks.onFailure(error),
   });

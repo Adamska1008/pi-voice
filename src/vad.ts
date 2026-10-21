@@ -270,7 +270,7 @@ export class VoiceActivityDetection {
     return model;
   }
 
-  private async openScorer(): Promise<VadScorer> {
+  async openScorer(): Promise<VadScorer> {
     const session = (await this.loaded()).createVadSession({ nThreads: 1 });
     return {
       async score(frame) {

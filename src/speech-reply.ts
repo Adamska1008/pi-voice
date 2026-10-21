@@ -32,6 +32,7 @@ export function createSpeechReply(run: ReplyRunner = runReply) {
     await current?.task;
   }
   return {
+    get active() { return active !== undefined; },
     toggle(ctx: ExtensionContext): void {
       if (closed) return;
       if (active) { void stop(); return; }

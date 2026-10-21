@@ -20,6 +20,7 @@ import type { RecordingMeter } from "./visualizer.js";
 import { conversationProse } from "./conversation-context.js";
 import { createVocabularyOnboarding } from "./vocabulary-onboarding.js";
 import { createSpeechReply } from "./speech-reply.js";
+import { createHandsFreeMode } from "./handsfree-mode.js";
 
 type ActiveRecording = {
   dictation: DictationController;
@@ -38,6 +39,9 @@ export type PiVoiceRuntime = {
   toggleCapture(ctx: ExtensionContext): Promise<void>;
   toggleSpeechReply(ctx: ExtensionContext): void;
   stopSpeechReply(): Promise<void>;
+  handsFreeCommand(args: string, ctx: ExtensionContext): Promise<void>;
+  stopHandsFree(): Promise<void>;
+  pauseHandsFree(): void;
   showSettings(ctx: ExtensionCommandContext): Promise<void>;
   replayOnboarding(ctx: ExtensionCommandContext): Promise<void>;
   shutdown(ctx: ExtensionContext): Promise<void>;
@@ -77,6 +81,11 @@ export function createPiVoiceRuntime(
   const speechReply = createSpeechReply();
   const voiceActivity = new VoiceActivityDetection();
   const transcriptionService = new TranscriptionService(undefined, (pcm, signal) => voiceActivity.scoreClip(pcm, signal));
+  const handsFree = createHandsFreeMode(pi, {
+    settings: requireConfiguredSettingsForTool, service: transcriptionService, vad: voiceActivity,
+    automaticVocabulary: getAutomaticVocabulary,
+    blocked: () => shuttingDown || !!recording || !!operation || speechReply.active,
+  });
 
   function loadAudio(): Promise<typeof import("./audio.js")> {
     return (audioModulePromise ??= import("./audio.js"));
@@ -417,6 +426,8 @@ export function createPiVoiceRuntime(
 
   async function toggleCaptureTask(ctx: ExtensionContext): Promise<void> {
     if (shuttingDown) return;
+    await handsFree.stop(); // Manual microphone ownership always wins.
+    if (shuttingDown) return;
     // A fresh action replaces the transient completion in the shared meter slot.
     cancelCompletionWidgetTimer();
     if (recording) {
@@ -469,6 +480,7 @@ export function createPiVoiceRuntime(
   }
 
   async function showSettings(ctx: ExtensionCommandContext): Promise<void> {
+    await handsFree.stop();
     await dismissCompletionWidget(ctx);
     if (recording) {
       ctx.ui.notify(
@@ -499,6 +511,7 @@ export function createPiVoiceRuntime(
   }
 
   async function replayOnboarding(ctx: ExtensionCommandContext): Promise<void> {
+    await handsFree.stop();
     await dismissCompletionWidget(ctx);
     if (recording) {
       ctx.ui.notify(
@@ -533,6 +546,7 @@ export function createPiVoiceRuntime(
     clearKeyListener();
     await Promise.all([
       vocabularyShutdown,
+      handsFree.stop(),
       speechReply.shutdown(),
       disposal,
       operation?.catch(() => undefined),
@@ -555,9 +569,13 @@ export function createPiVoiceRuntime(
     toggleSpeechReply(ctx) {
       if (shuttingDown) return;
       if (recording || operation) { ctx.ui.notify("Stop recording before requesting speech.", "info"); return; }
+      handsFree.pause();
       speechReply.toggle(ctx);
     },
     stopSpeechReply: () => speechReply.stop(),
+    handsFreeCommand: (args, ctx) => shuttingDown ? Promise.resolve() : handsFree.command(args, ctx),
+    stopHandsFree: () => handsFree.stop(),
+    pauseHandsFree: () => handsFree.pause(),
     showSettings,
     replayOnboarding,
     shutdown,

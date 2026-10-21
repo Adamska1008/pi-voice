@@ -113,6 +113,14 @@ export default function piVoice(pi: ExtensionAPI): void {
     description: "Speak a short summary of the latest reply; repeat to stop",
     handler: (_args, ctx) => speak(ctx),
   });
+  pi.registerCommand("voice-handsfree", {
+    description: "Opt-in local wake-word dictation: on, off, or status",
+    handler: async (args, ctx) => { if (!shuttingDown) await (await loadRuntime()).handsFreeCommand(args, ctx); },
+  });
+  pi.on("agent_start", async () => {
+    const runtime = await runtimePromise?.catch(() => undefined);
+    runtime?.pauseHandsFree();
+  });
   const replyShortcut = normalizeShortcut(process.env.PI_VOICE_REPLY_SHORTCUT ?? "ctrl+alt+x");
   if (replyShortcut && replyShortcut !== registeredShortcut) pi.registerShortcut(
     replyShortcut as Parameters<ExtensionAPI["registerShortcut"]>[0],
@@ -120,7 +128,7 @@ export default function piVoice(pi: ExtensionAPI): void {
   );
   pi.on("session_tree", async () => {
     const runtime = await runtimePromise?.catch(() => undefined);
-    await runtime?.stopSpeechReply();
+    await Promise.all([runtime?.stopSpeechReply(), runtime?.stopHandsFree()]);
   });
 
   const openSettings = async (
