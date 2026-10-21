@@ -28,14 +28,17 @@ test("CLI protocol carries raw UTF-8 input and separate Vulkan/model/voice argum
     if (input !== '中文 "hello"' || value('--speaker') !== 'vivian' || value('--device') !== 'Vulkan0'
       || value('--model') !== 'models/talker with spaces.gguf' || value('--codec') !== 'models/codec.gguf'
       || value('--lang') !== 'Chinese' || value('--max-new') !== '600' || value('-o') !== '-') process.exit(2);
-    const wav = Buffer.alloc(46); wav.write('RIFF'); wav.writeUInt32LE(38, 4); wav.write('WAVEfmt ', 8);
+    const wav = Buffer.alloc(46); wav.write('RIFF'); wav.writeUInt32LE(0x7fffffff, 4); wav.write('WAVEfmt ', 8);
     wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
     wav.writeUInt32LE(24000, 24); wav.writeUInt32LE(48000, 28); wav.writeUInt16LE(2, 32);
-    wav.writeUInt16LE(16, 34); wav.write('data', 36); wav.writeUInt32LE(2, 40); process.stdout.write(wav);
+    wav.writeUInt16LE(16, 34); wav.write('data', 36); wav.writeUInt32LE(0x7fffffff, 40); process.stdout.write(wav);
   `);
   const audio = await backend.synthesize({ text: '中文 "hello"', signal: new AbortController().signal });
   assert.equal(audio.format, "wav");
   assert.equal(audio.data.length, 46);
+  const wav = Buffer.from(audio.data);
+  assert.equal(wav.readUInt32LE(4), wav.length - 8);
+  assert.equal(wav.readUInt32LE(40), wav.length - 44);
 });
 
 test("rejects invalid requests, worker errors and non-audio output", async t => {
@@ -47,6 +50,11 @@ test("rejects invalid requests, worker errors and non-audio output", async t => 
   await assert.rejects(backend.synthesize({ text: "测试", signal: new AbortController().signal }), /exit 3/);
   const invalid = await fixture(t, "process.stdout.write('not audio')");
   await assert.rejects(invalid.synthesize({ text: "测试", signal: new AbortController().signal }), /WAV/);
+});
+
+test("rejects RIFF-looking output without the expected PCM layout", async t => {
+  const backend = await fixture(t, `const b = Buffer.alloc(46); b.write('RIFF'); b.write('WAVE',8); process.stdout.write(b);`);
+  await assert.rejects(backend.synthesize({ text: "测试", signal: new AbortController().signal }), /PCM16/);
 });
 
 test("missing executable and excessive output fail without returning audio", async t => {

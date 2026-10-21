@@ -38,9 +38,17 @@ export class QwenSpeechBackend implements SpeechBackend {
         if (failure) { reject(failure); return; }
         if (code !== 0) { reject(new Error(`Qwen TTS worker failed (exit ${code}); check model paths, device and runtime libraries.`)); return; }
         const data = Buffer.concat(chunks);
-        if (data.length < 44 || data.toString("ascii", 0, 4) !== "RIFF" || data.toString("ascii", 8, 12) !== "WAVE") {
-          reject(new Error("TTS worker did not return WAV audio.")); return;
+        // Pinned CLI emits a 44-byte mono PCM16 header with streaming size placeholders.
+        if (data.length <= 44 || (data.length - 44) % 2 !== 0
+          || data.toString("ascii", 0, 4) !== "RIFF" || data.toString("ascii", 8, 16) !== "WAVEfmt "
+          || data.readUInt32LE(16) !== 16 || data.readUInt16LE(20) !== 1 || data.readUInt16LE(22) !== 1
+          || data.readUInt32LE(24) !== 24000 || data.readUInt32LE(28) !== 48000
+          || data.readUInt16LE(32) !== 2 || data.readUInt16LE(34) !== 16
+          || data.toString("ascii", 36, 40) !== "data") {
+          reject(new Error("TTS worker did not return expected PCM16 WAV audio.")); return;
         }
+        data.writeUInt32LE(data.length - 8, 4);
+        data.writeUInt32LE(data.length - 44, 40);
         resolve({ format: "wav", data });
       });
       child.stdin.end(text, "utf8");
