@@ -18,6 +18,7 @@ import { VoiceActivityDetection } from "./vad.js";
 import { readDictationVocabulary } from "./vocabulary.js";
 import type { RecordingMeter } from "./visualizer.js";
 import { conversationProse } from "./conversation-context.js";
+import { createVocabularyOnboarding } from "./vocabulary-onboarding.js";
 
 type ActiveRecording = {
   dictation: DictationController;
@@ -69,6 +70,7 @@ export function createPiVoiceRuntime(
   let settingsWarningShown = false;
   let audioModulePromise: Promise<typeof import("./audio.js")> | undefined;
   let visualizerModulePromise: Promise<typeof import("./visualizer.js")> | undefined;
+  const vocabularyOnboarding = createVocabularyOnboarding();
   const voiceActivity = new VoiceActivityDetection();
   const transcriptionService = new TranscriptionService(undefined, (pcm, signal) => voiceActivity.scoreClip(pcm, signal));
 
@@ -334,6 +336,8 @@ export function createPiVoiceRuntime(
     ctx: ExtensionContext,
     configured: TranscribeSettings,
   ): Promise<void> {
+    const beginVocabularyInitialization = await vocabularyOnboarding.prepare(ctx);
+    if (shuttingDown) return;
     const context = ctx.sessionManager.getBranch().slice(-80).flatMap(entry => {
       if (entry.type !== "message") return [];
       const message = entry.message;
@@ -390,6 +394,7 @@ export function createPiVoiceRuntime(
       updateMeter();
       recording = { dictation: controller, meter, unwatch: watchEventLoop() };
       listenForKeys(ctx);
+      beginVocabularyInitialization(); // Current recording already owns its vocabulary snapshot.
     } catch (error) {
       recording?.unwatch();
       recording = undefined;
@@ -514,12 +519,14 @@ export function createPiVoiceRuntime(
 
   async function shutdown(ctx: ExtensionContext): Promise<void> {
     shuttingDown = true;
+    const vocabularyShutdown = vocabularyOnboarding.shutdown();
     cancelCompletionWidgetTimer();
     const disposal = dictation?.dispose();
     recording?.meter.stop();
     recording?.unwatch();
     clearKeyListener();
     await Promise.all([
+      vocabularyShutdown,
       disposal,
       operation?.catch(() => undefined),
       transcriptionService.shutdown().catch(() => undefined),

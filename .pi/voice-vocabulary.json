@@ -1,30 +1,8 @@
 {
   "terms": [
-    "Meilisearch",
-    "Dolt",
-    "LanceDB",
-    "DuckDB",
-    "ClickHouse",
-    "Vector",
-    "pi-voice",
-    "Pi Coding Agent",
+    "Pi Voice",
     "Qwen3-ASR",
-    "Whisper",
-    "transcribe-cpp",
-    "FFmpeg",
-    "Silero",
-    "VAD",
-    "GGUF",
-    "DictationController",
-    "TranscriptionService",
-    "TranscribeCppBackend",
-    "ChunkedDictationStream",
-    "reserveDictation",
-    "transcribe_file",
-    "readProjectVocabulary",
-    "dictation-controller.ts",
-    "transcription-service.ts",
-    "vocabulary.ts",
-    "voice-vocabulary.json"
+    "ASR",
+    "pi-transcribe"
   ]
 }
