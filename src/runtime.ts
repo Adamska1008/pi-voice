@@ -19,6 +19,7 @@ import { readDictationVocabulary } from "./vocabulary.js";
 import type { RecordingMeter } from "./visualizer.js";
 import { conversationProse } from "./conversation-context.js";
 import { createVocabularyOnboarding } from "./vocabulary-onboarding.js";
+import { createSpeechReply } from "./speech-reply.js";
 
 type ActiveRecording = {
   dictation: DictationController;
@@ -35,6 +36,8 @@ export type PiVoiceRuntime = {
   readonly service: TranscriptionService;
   requireConfiguredSettingsForTool(): Promise<TranscribeSettings>;
   toggleCapture(ctx: ExtensionContext): Promise<void>;
+  toggleSpeechReply(ctx: ExtensionContext): void;
+  stopSpeechReply(): Promise<void>;
   showSettings(ctx: ExtensionCommandContext): Promise<void>;
   replayOnboarding(ctx: ExtensionCommandContext): Promise<void>;
   shutdown(ctx: ExtensionContext): Promise<void>;
@@ -71,6 +74,7 @@ export function createPiVoiceRuntime(
   let audioModulePromise: Promise<typeof import("./audio.js")> | undefined;
   let visualizerModulePromise: Promise<typeof import("./visualizer.js")> | undefined;
   const vocabularyOnboarding = createVocabularyOnboarding();
+  const speechReply = createSpeechReply();
   const voiceActivity = new VoiceActivityDetection();
   const transcriptionService = new TranscriptionService(undefined, (pcm, signal) => voiceActivity.scoreClip(pcm, signal));
 
@@ -336,6 +340,8 @@ export function createPiVoiceRuntime(
     ctx: ExtensionContext,
     configured: TranscribeSettings,
   ): Promise<void> {
+    await speechReply.stop(); // Drain playback before opening the microphone.
+    if (shuttingDown) return;
     const beginVocabularyInitialization = await vocabularyOnboarding.prepare(ctx);
     if (shuttingDown) return;
     const context = ctx.sessionManager.getBranch().slice(-80).flatMap(entry => {
@@ -527,6 +533,7 @@ export function createPiVoiceRuntime(
     clearKeyListener();
     await Promise.all([
       vocabularyShutdown,
+      speechReply.shutdown(),
       disposal,
       operation?.catch(() => undefined),
       transcriptionService.shutdown().catch(() => undefined),
@@ -545,6 +552,12 @@ export function createPiVoiceRuntime(
     service: transcriptionService,
     requireConfiguredSettingsForTool,
     toggleCapture,
+    toggleSpeechReply(ctx) {
+      if (shuttingDown) return;
+      if (recording || operation) { ctx.ui.notify("Stop recording before requesting speech.", "info"); return; }
+      speechReply.toggle(ctx);
+    },
+    stopSpeechReply: () => speechReply.stop(),
     showSettings,
     replayOnboarding,
     shutdown,

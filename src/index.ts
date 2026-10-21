@@ -11,7 +11,7 @@ import {
   legacyGitMigrationMessage,
 } from "./install-migration.js";
 import type { PiVoiceRuntime } from "./runtime.js";
-import { displayShortcut, STATUS_WIDGET_KEY } from "./shortcut-core.js";
+import { displayShortcut, normalizeShortcut, STATUS_WIDGET_KEY } from "./shortcut-core.js";
 import { initLog, log, logStep, markKeyPress, watchEventLoop } from "./log.js";
 import { legacySettingsPath, logPath, settingsPath } from "./settings-path.js";
 import { readShortcutForRegistration } from "./startup-shortcut.js";
@@ -104,6 +104,23 @@ export default function piVoice(pi: ExtensionAPI): void {
   pi.registerCommand("voice", {
     description: "Start or stop microphone transcription",
     handler: (_args, ctx) => toggleCapture(ctx),
+  });
+
+  const speak = async (ctx: ExtensionContext): Promise<void> => {
+    if (!shuttingDown) (await loadRuntime()).toggleSpeechReply(ctx);
+  };
+  pi.registerCommand("voice-reply", {
+    description: "Speak a short summary of the latest reply; repeat to stop",
+    handler: (_args, ctx) => speak(ctx),
+  });
+  const replyShortcut = normalizeShortcut(process.env.PI_VOICE_REPLY_SHORTCUT ?? "ctrl+alt+x");
+  if (replyShortcut && replyShortcut !== registeredShortcut) pi.registerShortcut(
+    replyShortcut as Parameters<ExtensionAPI["registerShortcut"]>[0],
+    { description: "Toggle spoken reply", handler: speak },
+  );
+  pi.on("session_tree", async () => {
+    const runtime = await runtimePromise?.catch(() => undefined);
+    await runtime?.stopSpeechReply();
   });
 
   const openSettings = async (
