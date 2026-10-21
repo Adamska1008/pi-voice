@@ -15,7 +15,52 @@ export interface WakeDetector {
   close(): Promise<void>;
 }
 
-export async function openWakeDetector(directory: string, signal: AbortSignal, workerPath = fileURLToPath(new URL("./wake-worker.mjs", import.meta.url))): Promise<WakeDetector> {
+/** Bound native allocator lifetime too, not just JS buffers. Preserve three seconds across recycling. */
+export async function openWakeDetector(directory: string, signal: AbortSignal, workerPath?: string, recycleFrames = 9375): Promise<WakeDetector> {
+  const lifetime = new AbortController();
+  const combined = AbortSignal.any([signal, lifetime.signal]);
+  let worker = await openWakeWorker(directory, combined, workerPath);
+  let frames = 0;
+  let recent: Float32Array[] = [];
+  let operation: Promise<boolean> | undefined;
+  let closed = false;
+  return {
+    async feed(frame) {
+      combined.throwIfAborted();
+      if (closed || operation) throw new Error("Wake detector closed or busy.");
+      const task = (async () => {
+        let detected = false;
+        if (frames >= recycleFrames) {
+          await worker.close();
+          worker = await openWakeWorker(directory, combined, workerPath);
+          for (const previous of recent) detected = (await worker.feed(previous)) || detected;
+          frames = 0;
+        }
+        detected = (await worker.feed(frame)) || detected;
+        frames++;
+        recent.push(frame.slice());
+        if (recent.length > 94) recent.shift();
+        return detected;
+      })();
+      operation = task;
+      try { return await task; } finally { if (operation === task) operation = undefined; }
+    },
+    async reset() {
+      combined.throwIfAborted();
+      recent = [];
+      await worker.reset();
+    },
+    async close() {
+      closed = true;
+      lifetime.abort();
+      await worker.close();
+      await operation?.catch(() => undefined);
+      recent = [];
+    },
+  };
+}
+
+async function openWakeWorker(directory: string, signal: AbortSignal, workerPath = fileURLToPath(new URL("./wake-worker.mjs", import.meta.url))): Promise<WakeDetector> {
   signal.throwIfAborted();
   const models = Object.fromEntries(Object.entries(KWS_FILES).map(([name, file]) => [name, join(directory, file)]));
   const tokens = join(directory, "tokens.txt");
@@ -24,7 +69,7 @@ export async function openWakeDetector(directory: string, signal: AbortSignal, w
     if (!(await stat(path).catch(() => undefined))?.isFile()) throw new Error("Wake model missing. Run npm run wake:setup first.");
   }
   signal.throwIfAborted();
-  const child: ChildProcess = fork(workerPath, [], { serialization: "advanced", stdio: ["ignore", "ignore", "ignore", "ipc"], execArgv: [] });
+  const child: ChildProcess = fork(workerPath, [], { serialization: "advanced", stdio: ["ignore", "ignore", "ignore", "ipc"], execArgv: ["--expose-gc"] });
   let closed = false;
   let nextId = 0;
   const pending = new Map<number, { resolve: (keyword: string) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
